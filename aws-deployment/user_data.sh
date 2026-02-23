@@ -214,11 +214,11 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-# Start and enable services
+# Start and enable services (use supervisor only — NOT systemd for the app, to avoid port conflicts)
 systemctl daemon-reload
 systemctl enable nginx
 systemctl enable supervisor
-systemctl enable ethiopian-business
+# Do NOT enable ethiopian-business.service — supervisor manages gunicorn
 
 # Start services
 systemctl start supervisor
