@@ -1,0 +1,51 @@
+# AWS-specific requirements for Ethiopian Business Management System
+
+# Core Flask and web framework
+Flask==2.3.3
+Flask-Session==0.5.0
+Werkzeug==2.3.7
+Jinja2==3.1.2
+
+# Database connectivity
+psycopg2-binary==2.9.7
+SQLAlchemy==2.0.21
+
+# Production WSGI server
+gunicorn==21.2.0
+
+# AWS integrations
+boto3==1.28.85
+botocore==1.31.85
+
+# Configuration management
+python-dotenv==1.0.0
+
+# Security and authentication
+passlib==1.7.4
+bcrypt==4.0.1
+
+# Ethiopian tax and business calculations
+numpy==1.24.3
+pandas==2.0.3
+
+# Date and time handling
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Environment and configuration
+click==8.1.7
+
+# Monitoring and logging
+psutil==5.9.5
+
+# Data validation and serialization
+marshmallow==3.20.1
+
+# HTTP client for external APIs
+requests==2.31.0
+
+# Excel/CSV export functionality
+openpyxl==3.1.2
+
+# Ethiopian currency and number formatting
+babel==2.12.1
