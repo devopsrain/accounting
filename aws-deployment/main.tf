@@ -238,7 +238,7 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_instance" "main" {
   identifier     = "${var.project_name}-db"
   engine         = "postgres"
-  engine_version = "14.9"
+  engine_version = "16.6"
   instance_class = "db.t3.small"
   
   allocated_storage     = 50
@@ -271,9 +271,25 @@ resource "aws_key_pair" "main" {
   public_key = file("~/.ssh/id_rsa.pub")  # Generate SSH key first
 }
 
+# Look up the latest Ubuntu 22.04 LTS AMI for the current region
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]  # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
 # EC2 Instance
 resource "aws_instance" "web" {
-  ami           = "ami-0c6120f461d6b39e9"  # Ubuntu 22.04 LTS in af-south-1
+  ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.medium"
   key_name      = aws_key_pair.main.key_name
 
@@ -286,12 +302,12 @@ resource "aws_instance" "web" {
     encrypted   = true
   }
 
-  user_data = base64encode(templatefile("${path.module}/user_data.sh", {
-    db_host     = aws_db_instance.main.endpoint
+  user_data = templatefile("${path.module}/user_data.sh", {
+    db_host     = aws_db_instance.main.address
     db_name     = aws_db_instance.main.db_name
     db_username = aws_db_instance.main.username
     db_password = "SecurePassword123!"
-  }))
+  })
 
   tags = {
     Name = "${var.project_name}-web-server"

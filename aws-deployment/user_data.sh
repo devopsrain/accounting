@@ -15,9 +15,9 @@ usermod -aG sudo businessapp
 mkdir -p /opt/ethiopian-business
 chown businessapp:businessapp /opt/ethiopian-business
 
-# Clone application (you'll need to replace with your repository URL)
+# Clone application
 cd /opt/ethiopian-business
-git clone https://github.com/yourusername/accounting.git .
+git clone https://github.com/devopsrain/accounting.git .
 chown -R businessapp:businessapp /opt/ethiopian-business
 
 # Create Python virtual environment
@@ -26,69 +26,57 @@ sudo -u businessapp /opt/ethiopian-business/venv/bin/pip install --upgrade pip
 
 # Install Python dependencies
 sudo -u businessapp /opt/ethiopian-business/venv/bin/pip install -r requirements.txt
-sudo -u businessapp /opt/ethiopian-business/venv/bin/pip install gunicorn psycopg2-binary
+sudo -u businessapp /opt/ethiopian-business/venv/bin/pip install gunicorn psycopg2-binary python-dotenv
 
 # Create environment configuration
 cat > /opt/ethiopian-business/.env << EOF
 FLASK_ENV=production
 FLASK_DEBUG=False
-SECRET_KEY=your-super-secret-key-change-this
+FLASK_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 DATABASE_URL=postgresql://${db_username}:${db_password}@${db_host}:5432/${db_name}
+DEFAULT_ADMIN_PASSWORD=Admin2026!Secure
+DEFAULT_HR_PASSWORD=HR2026!Secure
+DEFAULT_ACCOUNTANT_PASSWORD=Acc2026!Secure
+DEFAULT_EMPLOYEE_PASSWORD=Emp2026!Secure
+DEFAULT_DATA_ENTRY_PASSWORD=Data2026!Secure
 AWS_DEFAULT_REGION=af-south-1
 EOF
 
 chown businessapp:businessapp /opt/ethiopian-business/.env
 chmod 600 /opt/ethiopian-business/.env
 
-# Create production configuration file
-cat > /opt/ethiopian-business/config.py << 'EOF'
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key'
-    DATABASE_URL = os.environ.get('DATABASE_URL')
-    FLASK_ENV = os.environ.get('FLASK_ENV', 'production')
-    
-class ProductionConfig(Config):
-    DEBUG = False
-    TESTING = False
-    
-class DevelopmentConfig(Config):
-    DEBUG = True
-    TESTING = False
-
-config = {
-    'development': DevelopmentConfig,
-    'production': ProductionConfig,
-    'default': ProductionConfig
-}
-EOF
+# Production configuration loaded via .env and run_production.py
 
 # Create application startup script
-cat > /opt/ethiopian-business/run_production.py << 'EOF'
+cat > /opt/ethiopian-business/run_production.py << 'PYEOF'
 #!/usr/bin/env python3
+"""Production entry point for gunicorn."""
 import os
-from web.app import create_app
-from config import config
+import sys
 
-config_name = os.getenv('FLASK_ENV', 'production')
-app = create_app(config[config_name])
+# Load environment variables from .env
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
+# Ensure the project root is on the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import the module-level Flask app
+from web.app import app
+
+# Add a health check endpoint for ALB
 @app.route('/health')
 def health_check():
     return {'status': 'healthy', 'service': 'Ethiopian Business Management System'}, 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-EOF
+PYEOF
 
 chown businessapp:businessapp /opt/ethiopian-business/run_production.py
 chmod +x /opt/ethiopian-business/run_production.py
 
-# Configure Supervisor for process management
+# Configure Supervisor for process management (env vars loaded by run_production.py via dotenv)
 cat > /etc/supervisor/conf.d/ethiopian-business.conf << EOF
 [program:ethiopian-business]
 command=/opt/ethiopian-business/venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 3 --timeout 120 run_production:app
@@ -100,6 +88,21 @@ redirect_stderr=true
 stdout_logfile=/var/log/ethiopian-business.log
 environment=PATH="/opt/ethiopian-business/venv/bin"
 EOF
+
+# Also create an env file supervisor can source
+cat > /opt/ethiopian-business/production.env << 'ENVEOF'
+FLASK_SECRET_KEY=PLACEHOLDER
+DEFAULT_ADMIN_PASSWORD=Admin2026!Secure
+DEFAULT_HR_PASSWORD=HR2026!Secure
+DEFAULT_ACCOUNTANT_PASSWORD=Acc2026!Secure
+DEFAULT_EMPLOYEE_PASSWORD=Emp2026!Secure
+DEFAULT_DATA_ENTRY_PASSWORD=Data2026!Secure
+ENVEOF
+# Replace placeholder with actual generated key
+GENERATED_KEY=$(grep FLASK_SECRET_KEY /opt/ethiopian-business/.env | cut -d= -f2)
+sed -i "s/PLACEHOLDER/$GENERATED_KEY/" /opt/ethiopian-business/production.env
+chown businessapp:businessapp /opt/ethiopian-business/production.env
+chmod 600 /opt/ethiopian-business/production.env
 
 # Configure Nginx
 cat > /etc/nginx/sites-available/ethiopian-business << 'EOF'
@@ -138,43 +141,15 @@ rm -f /etc/nginx/sites-enabled/default
 # Test Nginx configuration
 nginx -t
 
-# Install Python dependencies for database setup
-sudo -u businessapp /opt/ethiopian-business/venv/bin/pip install python-dotenv
+# Wait for database to be available (optional — app uses parquet locally)
+echo "Checking database connectivity..."
+timeout 60 bash -c 'until pg_isready -h ${db_host} -p 5432 -U ${db_username} 2>/dev/null; do echo "Waiting for database..."; sleep 5; done' || echo "Database not reachable — app will use local parquet storage."
 
-# Wait for database to be ready
-echo "Waiting for database to be ready..."
-while ! pg_isready -h ${db_host} -p 5432 -U ${db_username}; do
-    echo "Waiting for database..."
-    sleep 10
-done
-
-# Initialize database (you'll need to create this script)
+# Initialize application data directories
 cd /opt/ethiopian-business
-sudo -u businessapp /opt/ethiopian-business/venv/bin/python3 << 'EOF'
-import os
-import sys
-sys.path.append('/opt/ethiopian-business')
-
-try:
-    from core.ledger import GeneralLedger
-    from models.vat_portal import VATContextManager
-    
-    # Initialize the database schema and default data
-    print("Setting up database...")
-    
-    # Create ledger and setup standard accounts
-    ledger = GeneralLedger()
-    ledger.create_standard_chart_of_accounts()
-    
-    # Initialize VAT system
-    vat_manager = VATContextManager('demo_company')
-    
-    print("Database initialization completed successfully!")
-    
-except Exception as e:
-    print(f"Database initialization failed: {e}")
-    sys.exit(1)
-EOF
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/exports
+echo "Application data directories created."
 
 # Create log rotation for application logs
 cat > /etc/logrotate.d/ethiopian-business << 'EOF'
@@ -222,17 +197,16 @@ echo "0 2 * * * /opt/ethiopian-business/backup.sh" | crontab -u businessapp -
 cat > /etc/systemd/system/ethiopian-business.service << 'EOF'
 [Unit]
 Description=Ethiopian Business Management System
-After=network.target postgresql.service
-Wants=postgresql.service
+After=network.target
 
 [Service]
-Type=forking
+Type=simple
 User=businessapp
 Group=businessapp
 WorkingDirectory=/opt/ethiopian-business
-Environment="PATH=/opt/ethiopian-business/venv/bin"
-ExecStart=/opt/ethiopian-business/venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 3 --daemon run_production:app
-ExecReload=/bin/kill -HUP $MAINPID
+EnvironmentFile=/opt/ethiopian-business/production.env
+Environment="PATH=/opt/ethiopian-business/venv/bin:/usr/bin:/bin"
+ExecStart=/opt/ethiopian-business/venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 3 --timeout 120 run_production:app
 Restart=always
 RestartSec=10
 
