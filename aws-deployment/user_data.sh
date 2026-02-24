@@ -5,7 +5,7 @@ apt-get update -y
 apt-get upgrade -y
 
 # Install required packages
-apt-get install -y python3 python3-pip python3-venv nginx git postgresql-client-14 supervisor
+apt-get install -y python3 python3-pip python3-venv nginx git postgresql-client supervisor
 
 # Create application user
 useradd -m -s /bin/bash businessapp
@@ -169,14 +169,24 @@ EOF
 # Set up automated backups
 cat > /opt/ethiopian-business/backup.sh << 'EOF'
 #!/bin/bash
+# Load database credentials from .env
+source /opt/ethiopian-business/.env
+
 BACKUP_DIR="/opt/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 DB_BACKUP_FILE="ethiopian_business_$DATE.sql"
 
 mkdir -p $BACKUP_DIR
 
+# Extract DB connection details from DATABASE_URL
+# Format: postgresql://user:password@host:port/dbname
+DB_USER=$(echo $DATABASE_URL | sed -n 's|.*://\([^:]*\):.*|\1|p')
+DB_PASS=$(echo $DATABASE_URL | sed -n 's|.*://[^:]*:\([^@]*\)@.*|\1|p')
+DB_HOST=$(echo $DATABASE_URL | sed -n 's|.*@\([^:]*\):.*|\1|p')
+DB_NAME=$(echo $DATABASE_URL | sed -n 's|.*/\([^?]*\).*|\1|p')
+
 # Database backup
-PGPASSWORD=${db_password} pg_dump -h ${db_host} -U ${db_username} -d ${db_name} > $BACKUP_DIR/$DB_BACKUP_FILE
+PGPASSWORD=$DB_PASS pg_dump -h $DB_HOST -U $DB_USER -d $DB_NAME > $BACKUP_DIR/$DB_BACKUP_FILE
 
 # Compress backup
 gzip $BACKUP_DIR/$DB_BACKUP_FILE
@@ -253,9 +263,12 @@ EOF
 systemctl enable fail2ban
 systemctl start fail2ban
 
-# Set up CloudWatch monitoring
+# Set up CloudWatch monitoring (IAM role now configured)
 curl https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O
 dpkg -i amazon-cloudwatch-agent.deb
+
+# Create CloudWatch config directory if it doesn't exist
+mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
 
 # Basic CloudWatch configuration
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'EOF'
@@ -298,6 +311,13 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'EOF'
     }
 }
 EOF
+
+# Start CloudWatch agent
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+    -a fetch-config \
+    -m ec2 \
+    -s \
+    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
 # Display completion message
 echo "==================================="

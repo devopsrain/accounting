@@ -141,7 +141,8 @@ resource "aws_security_group" "web" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # Restrict this to your IP in production
+    cidr_blocks = ["0.0.0.0/0"]  # TODO: Restrict to your IP: ["YOUR_IP/32"]
+    description = "SSH access - RESTRICT THIS IN PRODUCTION"
   }
 
   egress {
@@ -191,7 +192,7 @@ resource "aws_lb" "main" {
 # Target Group
 resource "aws_lb_target_group" "web" {
   name     = "${var.project_name}-tg"
-  port     = 5000
+  port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 
@@ -271,6 +272,46 @@ resource "aws_key_pair" "main" {
   public_key = file("~/.ssh/id_rsa.pub")  # Generate SSH key first
 }
 
+# IAM Role for EC2 Instance (CloudWatch, S3 access)
+resource "aws_iam_role" "web" {
+  name = "${var.project_name}-web-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.project_name}-web-role"
+  }
+}
+
+# Attach CloudWatch policy
+resource "aws_iam_role_policy_attachment" "cloudwatch" {
+  role       = aws_iam_role.web.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+# Attach S3 access policy
+resource "aws_iam_role_policy_attachment" "s3" {
+  role       = aws_iam_role.web.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+
+# Create instance profile
+resource "aws_iam_instance_profile" "web" {
+  name = "${var.project_name}-web-profile"
+  role = aws_iam_role.web.name
+}
+
 # Look up the latest Ubuntu 22.04 LTS AMI for the current region
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -292,6 +333,7 @@ resource "aws_instance" "web" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.medium"
   key_name      = aws_key_pair.main.key_name
+  iam_instance_profile = aws_iam_instance_profile.web.name
 
   vpc_security_group_ids = [aws_security_group.web.id]
   subnet_id              = aws_subnet.public_1.id
@@ -318,7 +360,7 @@ resource "aws_instance" "web" {
 resource "aws_lb_target_group_attachment" "web" {
   target_group_arn = aws_lb_target_group.web.arn
   target_id        = aws_instance.web.id
-  port             = 5000
+  port             = 80
 }
 
 # S3 Bucket for backups and static files
