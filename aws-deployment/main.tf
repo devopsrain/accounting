@@ -169,6 +169,13 @@ resource "aws_security_group" "database" {
     security_groups = [aws_security_group.web.id]
   }
 
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   tags = {
     Name = "${var.project_name}-db-sg"
   }
@@ -204,8 +211,8 @@ resource "aws_lb_target_group" "web" {
     path               = "/health"
     port               = "traffic-port"
     protocol           = "HTTP"
-    timeout            = 5
-    unhealthy_threshold = 2
+    timeout            = 10
+    unhealthy_threshold = 5
   }
 
   tags = {
@@ -300,10 +307,29 @@ resource "aws_iam_role_policy_attachment" "cloudwatch" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
-# Attach S3 access policy
-resource "aws_iam_role_policy_attachment" "s3" {
-  role       = aws_iam_role.web.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+# Attach S3 access for backups (scoped to project bucket only)
+resource "aws_iam_role_policy" "s3_backup" {
+  name = "${var.project_name}-s3-backup"
+  role = aws_iam_role.web.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket",
+          "s3:DeleteObject"
+        ]
+        Resource = [
+          aws_s3_bucket.main.arn,
+          "${aws_s3_bucket.main.arn}/*"
+        ]
+      }
+    ]
+  })
 }
 
 # Create instance profile

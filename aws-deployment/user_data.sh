@@ -1,4 +1,7 @@
 #!/bin/bash
+set -ex  # Exit on error, print commands for debugging in cloud-init-output.log
+exec > >(tee /var/log/user_data.log) 2>&1
+echo "=== user_data.sh starting at $(date) ==="
 
 # Update system
 apt-get update -y
@@ -17,7 +20,16 @@ chown businessapp:businessapp /opt/ethiopian-business
 
 # Clone application
 cd /opt/ethiopian-business
-git clone https://github.com/devopsrain/accounting.git .
+echo "Cloning repository..."
+for i in 1 2 3; do
+    git clone https://github.com/devopsrain/accounting.git . && break
+    echo "Git clone attempt $i failed, retrying in 10s..."
+    sleep 10
+done
+if [ ! -f requirements.txt ]; then
+    echo "FATAL: Git clone failed — requirements.txt not found"
+    exit 1
+fi
 chown -R businessapp:businessapp /opt/ethiopian-business
 
 # Create Python virtual environment
@@ -54,17 +66,19 @@ cat > /opt/ethiopian-business/run_production.py << 'PYEOF'
 import os
 import sys
 
-# Load environment variables from .env
+# Load environment variables from .env BEFORE importing the app
+# This ensures FLASK_SECRET_KEY and DEFAULT_*_PASSWORD are set
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(env_path, override=True)
 
 # Ensure the project root is on the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Import the module-level Flask app
+# Import the module-level Flask app (this triggers app.py module-level code)
 from web.app import app
 
-# Add a health check endpoint for ALB
+# Add a health check endpoint for ALB (must be after import)
 @app.route('/health')
 def health_check():
     return {'status': 'healthy', 'service': 'Ethiopian Business Management System'}, 200
@@ -77,13 +91,15 @@ chown businessapp:businessapp /opt/ethiopian-business/run_production.py
 chmod +x /opt/ethiopian-business/run_production.py
 
 # Configure Supervisor for process management (env vars loaded by run_production.py via dotenv)
-cat > /etc/supervisor/conf.d/ethiopian-business.conf << EOF
+cat > /etc/supervisor/conf.d/ethiopian-business.conf << 'EOF'
 [program:ethiopian-business]
-command=/opt/ethiopian-business/venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 3 --timeout 120 run_production:app
+command=/opt/ethiopian-business/venv/bin/gunicorn --bind 127.0.0.1:5000 --workers 3 --timeout 120 --access-logfile /var/log/ethiopian-business-access.log --error-logfile /var/log/ethiopian-business-error.log run_production:app
 directory=/opt/ethiopian-business
 user=businessapp
 autostart=true
 autorestart=true
+startsecs=10
+startretries=5
 redirect_stderr=true
 stdout_logfile=/var/log/ethiopian-business.log
 environment=PATH="/opt/ethiopian-business/venv/bin"
@@ -216,7 +232,7 @@ Group=businessapp
 WorkingDirectory=/opt/ethiopian-business
 EnvironmentFile=/opt/ethiopian-business/production.env
 Environment="PATH=/opt/ethiopian-business/venv/bin:/usr/bin:/bin"
-ExecStart=/opt/ethiopian-business/venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 3 --timeout 120 run_production:app
+ExecStart=/opt/ethiopian-business/venv/bin/gunicorn --bind 127.0.0.1:5000 --workers 3 --timeout 120 run_production:app
 Restart=always
 RestartSec=10
 
@@ -263,8 +279,9 @@ EOF
 systemctl enable fail2ban
 systemctl start fail2ban
 
-# Set up CloudWatch monitoring (IAM role now configured)
-curl https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O
+# Set up CloudWatch monitoring (IAM role now configured) — non-fatal if it fails
+set +e
+curl -sS https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O
 dpkg -i amazon-cloudwatch-agent.deb
 
 # Create CloudWatch config directory if it doesn't exist
@@ -317,7 +334,8 @@ EOF
     -a fetch-config \
     -m ec2 \
     -s \
-    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json || echo "CloudWatch agent start failed (non-fatal)"
+set -e
 
 # Display completion message
 echo "==================================="
@@ -329,3 +347,5 @@ echo "Database Name: ${db_name}"
 echo "Application Status: Check with 'supervisorctl status'"
 echo "Logs: /var/log/ethiopian-business.log"
 echo "==================================="
+echo "=== user_data.sh completed at $(date) ==="
+touch /opt/ethiopian-business/.deploy_complete
