@@ -1,15 +1,14 @@
 """
-User Authentication & Authorization Data Store
+User Authentication & Authorization Data Store — PostgreSQL backend
 
-Persistent parquet-backed user management with:
-- Username/password authentication (SHA-256, upgradeable)
+Persistent PostgreSQL-backed user management with:
+- Username/password authentication (bcrypt, with legacy SHA-256 upgrade)
 - Role-based privilege levels
 - Login history tracking
 - Session management helpers
 - SIEM integration (auto-logs auth events)
 """
 
-import pandas as pd
 import uuid
 import os
 import hashlib
@@ -19,11 +18,9 @@ from datetime import datetime
 from flask import session, request, redirect, url_for, flash
 from functools import wraps
 
-logger = logging.getLogger(__name__)
+from db import get_cursor, get_conn
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), 'data', 'auth')
-USERS_FILE = os.path.join(DATA_DIR, 'users.parquet')
-LOGIN_HISTORY_FILE = os.path.join(DATA_DIR, 'login_history.parquet')
+logger = logging.getLogger(__name__)
 
 # ── Security Constants ──────────────────────────────────────────
 MAX_FAILED_LOGIN_ATTEMPTS = 5      # lock account after N failures
@@ -90,122 +87,61 @@ def _is_legacy_hash(password_hash: str) -> bool:
 
 
 class AuthDataStore:
-    """Persistent user authentication and authorization store."""
+    """PostgreSQL-backed user authentication and authorization store."""
 
     def __init__(self):
-        os.makedirs(DATA_DIR, exist_ok=True)
         self._ensure_default_users()
 
-    # ── User CRUD ─────────────────────────────────────────────────
-
-    def _load_users(self) -> pd.DataFrame:
-        if os.path.exists(USERS_FILE):
-            return pd.read_parquet(USERS_FILE)
-        return pd.DataFrame()
-
-    def _save_users(self, df: pd.DataFrame):
-        df.to_parquet(USERS_FILE, index=False)
-
     def _ensure_default_users(self):
-        """Create default admin user if no users exist."""
-        if os.path.exists(USERS_FILE):
-            df = pd.read_parquet(USERS_FILE)
-            if len(df) > 0:
-                return
+        """Create default admin users if the users table is empty."""
+        try:
+            with get_cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS cnt FROM users")
+                row = cur.fetchone()
+                if row and row['cnt'] > 0:
+                    return
+        except Exception as e:
+            logger.warning("Could not check users table: %s", e)
+            return
 
         import secrets
 
         def _default_pw(env_var: str, fallback_length: int = 16) -> str:
-            """Return password from env var, or generate a secure random one."""
             return os.environ.get(env_var) or secrets.token_urlsafe(fallback_length)
 
-        admin_pw     = _default_pw('DEFAULT_ADMIN_PASSWORD')
-        hr_pw        = _default_pw('DEFAULT_HR_PASSWORD')
+        admin_pw      = _default_pw('DEFAULT_ADMIN_PASSWORD')
+        hr_pw         = _default_pw('DEFAULT_HR_PASSWORD')
         accountant_pw = _default_pw('DEFAULT_ACCOUNTANT_PASSWORD')
-        employee_pw  = _default_pw('DEFAULT_EMPLOYEE_PASSWORD')
-        data_pw      = _default_pw('DEFAULT_DATA_ENTRY_PASSWORD')
+        employee_pw   = _default_pw('DEFAULT_EMPLOYEE_PASSWORD')
+        data_pw       = _default_pw('DEFAULT_DATA_ENTRY_PASSWORD')
 
-        default_users = [
-            {
-                'user_id': str(uuid.uuid4()),
-                'username': 'admin',
-                'password_hash': _hash_password(admin_pw),
-                'full_name': 'System Administrator',
-                'email': 'admin@system.et',
-                'phone': '+251-11-999-0001',
-                'privilege_level': 'super_admin',
-                'is_active': True,
-                'created_at': datetime.now().isoformat(),
-                'last_login': '',
-                'login_count': 0,
-                'failed_login_count': 0,
-                'locked_until': '',
-            },
-            {
-                'user_id': str(uuid.uuid4()),
-                'username': 'hr_manager',
-                'password_hash': _hash_password(hr_pw),
-                'full_name': 'Almaz Tadesse',
-                'email': 'hr.manager@addistech.et',
-                'phone': '+251-11-555-1001',
-                'privilege_level': 'manager',
-                'is_active': True,
-                'created_at': datetime.now().isoformat(),
-                'last_login': '',
-                'login_count': 0,
-                'failed_login_count': 0,
-                'locked_until': '',
-            },
-            {
-                'user_id': str(uuid.uuid4()),
-                'username': 'accountant',
-                'password_hash': _hash_password(accountant_pw),
-                'full_name': 'Dawit Mengistu',
-                'email': 'accountant@addistech.et',
-                'phone': '+251-11-555-1002',
-                'privilege_level': 'operator',
-                'is_active': True,
-                'created_at': datetime.now().isoformat(),
-                'last_login': '',
-                'login_count': 0,
-                'failed_login_count': 0,
-                'locked_until': '',
-            },
-            {
-                'user_id': str(uuid.uuid4()),
-                'username': 'employee1',
-                'password_hash': _hash_password(employee_pw),
-                'full_name': 'Meron Haile',
-                'email': 'employee1@addistech.et',
-                'phone': '+251-11-555-2001',
-                'privilege_level': 'viewer',
-                'is_active': True,
-                'created_at': datetime.now().isoformat(),
-                'last_login': '',
-                'login_count': 0,
-                'failed_login_count': 0,
-                'locked_until': '',
-            },
-            {
-                'user_id': str(uuid.uuid4()),
-                'username': 'data_entry',
-                'password_hash': _hash_password(data_pw),
-                'full_name': 'Hanan Ahmed',
-                'email': 'data@addistech.et',
-                'phone': '+251-11-555-3001',
-                'privilege_level': 'data_entry',
-                'is_active': True,
-                'created_at': datetime.now().isoformat(),
-                'last_login': '',
-                'login_count': 0,
-                'failed_login_count': 0,
-                'locked_until': '',
-            },
+        seed_users = [
+            ('admin',      admin_pw,      'System Administrator', 'admin@system.et',           '+251-11-999-0001', 'super_admin'),
+            ('hr_manager', hr_pw,         'Almaz Tadesse',        'hr.manager@addistech.et',   '+251-11-555-1001', 'manager'),
+            ('accountant', accountant_pw, 'Dawit Mengistu',       'accountant@addistech.et',   '+251-11-555-1002', 'operator'),
+            ('employee1',  employee_pw,   'Meron Haile',          'employee1@addistech.et',    '+251-11-555-2001', 'viewer'),
+            ('data_entry', data_pw,       'Hanan Ahmed',          'data@addistech.et',         '+251-11-555-3001', 'data_entry'),
         ]
-        df = pd.DataFrame(default_users)
-        self._save_users(df)
+        now = datetime.now().isoformat()
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    for uname, pw, full_name, email, phone, privilege in seed_users:
+                        cur.execute(
+                            """INSERT INTO users
+                               (user_id,username,password_hash,full_name,email,phone,
+                                privilege_level,is_active,created_at,last_login,
+                                login_count,failed_login_count,locked_until)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                               ON CONFLICT (username) DO NOTHING""",
+                            (str(uuid.uuid4()), uname, _hash_password(pw),
+                             full_name, email, phone, privilege, True,
+                             now, '', 0, 0, '')
+                        )
+        except Exception as e:
+            logger.error("Failed to seed default users: %s", e)
+            return
 
-        # Log generated credentials so the admin can capture them on first run
         logger.warning('=== DEFAULT CREDENTIALS (first run) ===')
         logger.warning('  admin      : %s', admin_pw)
         logger.warning('  hr_manager : %s', hr_pw)
@@ -216,101 +152,95 @@ class AuthDataStore:
         logger.warning('=======================================')
 
     def authenticate(self, username: str, password: str) -> dict:
-        """
-        Authenticate user by username/email and password.
-        Returns user dict on success, None on failure.
-        Also logs the attempt to SIEM.
-        """
-        df = self._load_users()
-        if df.empty:
+        """Authenticate by username/email. Returns user dict or None."""
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM users WHERE username=%s OR email=%s",
+                    (username, username)
+                )
+                user = cur.fetchone()
+        except Exception as e:
+            logger.error("DB error during authenticate: %s", e)
             return None
 
-        # Find user by username or email
-        mask = (df['username'] == username) | (df['email'] == username)
-        matches = df[mask]
-
-        if matches.empty:
+        if not user:
             self._log_auth_event(username, success=False, reason='User not found')
             return None
 
-        user = matches.iloc[0].to_dict()
+        user = dict(user)
 
-        # Check if account is locked
-        if user.get('locked_until') and user['locked_until']:
+        if user.get('locked_until'):
             try:
                 locked_until = datetime.fromisoformat(user['locked_until'])
                 if datetime.now() < locked_until:
                     self._log_auth_event(username, success=False, reason='Account locked')
                     return None
                 else:
-                    # Unlock — reset failed count
-                    idx = df.index[mask][0]
-                    df.at[idx, 'locked_until'] = ''
-                    df.at[idx, 'failed_login_count'] = 0
-                    self._save_users(df)
+                    self._update_user_fields(user['user_id'], locked_until='', failed_login_count=0)
             except (ValueError, TypeError):
                 pass
 
-        # Check if active
         if not user.get('is_active', True):
             self._log_auth_event(username, success=False, reason='Account disabled')
             return None
 
-        # Verify password
         if not _verify_password(password, user['password_hash']):
-            # Increment failed count
-            idx = df.index[mask][0]
-            failed = int(df.at[idx, 'failed_login_count'] or 0) + 1
-            df.at[idx, 'failed_login_count'] = failed
-
-            # Lock after N failed attempts
+            failed = int(user.get('failed_login_count') or 0) + 1
+            updates = {'failed_login_count': failed}
             if failed >= MAX_FAILED_LOGIN_ATTEMPTS:
                 from datetime import timedelta
-                df.at[idx, 'locked_until'] = (datetime.now() + timedelta(minutes=ACCOUNT_LOCKOUT_MINUTES)).isoformat()
-
-            self._save_users(df)
+                updates['locked_until'] = (
+                    datetime.now() + timedelta(minutes=ACCOUNT_LOCKOUT_MINUTES)
+                ).isoformat()
+            self._update_user_fields(user['user_id'], **updates)
             self._log_auth_event(username, success=False, reason='Invalid password')
             return None
 
-        # Transparently upgrade legacy SHA-256 hashes to bcrypt
         if _is_legacy_hash(user['password_hash']):
-            idx = df.index[mask][0]
-            df.at[idx, 'password_hash'] = _hash_password(password)
-            self._save_users(df)
-            logger.info("Upgraded password hash to bcrypt for user '%s'", username)
+            self._update_user_fields(user['user_id'], password_hash=_hash_password(password))
+            logger.info("Upgraded password hash to bcrypt for '%s'", username)
 
-        # Success — update stats
-        idx = df.index[mask][0]
-        df.at[idx, 'last_login'] = datetime.now().isoformat()
-        df.at[idx, 'login_count'] = int(df.at[idx, 'login_count'] or 0) + 1
-        df.at[idx, 'failed_login_count'] = 0
-        df.at[idx, 'locked_until'] = ''
-        self._save_users(df)
+        self._update_user_fields(
+            user['user_id'],
+            last_login=datetime.now().isoformat(),
+            login_count=int(user.get('login_count') or 0) + 1,
+            failed_login_count=0,
+            locked_until='',
+        )
 
         self._log_auth_event(username, success=True)
         self._log_login_history(user)
-
+        user.pop('password_hash', None)
         return user
 
+    def _update_user_fields(self, user_id: str, **kwargs):
+        """Generic helper to UPDATE one or more columns for a user."""
+        if not kwargs:
+            return
+        cols = ', '.join(f"{k} = %s" for k in kwargs)
+        vals = list(kwargs.values()) + [user_id]
+        try:
+            with get_cursor() as cur:
+                cur.execute(f"UPDATE users SET {cols} WHERE user_id = %s", vals)
+        except Exception as e:
+            logger.error("Failed to update user fields %s: %s", list(kwargs.keys()), e)
+
     def _log_auth_event(self, username: str, success: bool, reason: str = ''):
-        """Log authentication event to SIEM."""
         try:
             from siem_data_store import siem_store
             from flask import request as flask_request
             siem_store.log_upload_event(
-                flask_request,
-                module='auth',
-                endpoint='/auth/login',
-                filename='',
-                status='success' if success else 'failed',
+                flask_request, module='auth', endpoint='/auth/login',
+                filename='', status='success' if success else 'failed',
                 user=username,
-                details=f"Login {'successful' if success else 'failed'}: {reason}" if reason else f"Login {'successful' if success else 'failed'}"
+                details=f"Login {'successful' if success else 'failed'}: {reason}" if reason
+                        else f"Login {'successful' if success else 'failed'}"
             )
         except Exception as e:
-            logger.warning("SIEM logging failed during auth event: %s", e)  # Don't break auth if SIEM is down
+            logger.warning("SIEM logging failed during auth event: %s", e)
 
     def _log_login_history(self, user: dict):
-        """Log login to persistent history."""
         try:
             from flask import request as flask_request
             ip = (
@@ -319,31 +249,22 @@ class AuthDataStore:
                 or flask_request.remote_addr
                 or 'unknown'
             )
-        except Exception as e:
-            logger.debug("Could not extract IP from request: %s", e)
+            user_agent = flask_request.headers.get('User-Agent', '')
+        except Exception:
             ip = 'unknown'
+            user_agent = ''
 
-        entry = {
-            'login_id': str(uuid.uuid4()),
-            'user_id': user['user_id'],
-            'username': user['username'],
-            'timestamp': datetime.now().isoformat(),
-            'ip_address': ip,
-            'user_agent': '',
-        }
         try:
-            from flask import request as flask_request
-            entry['user_agent'] = flask_request.headers.get('User-Agent', '')
+            with get_cursor() as cur:
+                cur.execute(
+                    """INSERT INTO login_history
+                       (login_id,user_id,username,timestamp,ip_address,user_agent)
+                       VALUES (%s,%s,%s,%s,%s,%s)""",
+                    (str(uuid.uuid4()), user['user_id'], user['username'],
+                     datetime.now().isoformat(), ip, user_agent)
+                )
         except Exception as e:
-            logger.debug("Could not extract User-Agent from request: %s", e)
-
-        new_df = pd.DataFrame([entry])
-        if os.path.exists(LOGIN_HISTORY_FILE):
-            existing = pd.read_parquet(LOGIN_HISTORY_FILE)
-            combined = pd.concat([existing, new_df], ignore_index=True)
-        else:
-            combined = new_df
-        combined.to_parquet(LOGIN_HISTORY_FILE, index=False)
+            logger.warning("Failed to log login history: %s", e)
 
     # ── Session Helpers ───────────────────────────────────────────
 
@@ -389,189 +310,184 @@ class AuthDataStore:
     # ── User Management (Admin) ───────────────────────────────────
 
     def get_all_users(self) -> list:
-        """Get all users (without password hashes)."""
-        df = self._load_users()
-        if df.empty:
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT user_id,username,full_name,email,phone,privilege_level,"
+                    "is_active,created_at,last_login,login_count,failed_login_count,"
+                    "locked_until FROM users ORDER BY username"
+                )
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error("get_all_users failed: %s", e)
             return []
-        safe = df.drop(columns=['password_hash'], errors='ignore')
-        return safe.sort_values('username').to_dict('records')
 
     def get_user_by_id(self, user_id: str) -> dict:
-        """Get a single user by ID."""
-        df = self._load_users()
-        if df.empty:
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT user_id,username,full_name,email,phone,privilege_level,"
+                    "is_active,created_at,last_login,login_count,failed_login_count,"
+                    "locked_until FROM users WHERE user_id=%s",
+                    (user_id,)
+                )
+                row = cur.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error("get_user_by_id failed: %s", e)
             return None
-        matches = df[df['user_id'] == user_id]
-        if matches.empty:
-            return None
-        user = matches.iloc[0].to_dict()
-        user.pop('password_hash', None)
-        return user
 
     def create_user(self, username: str, password: str, full_name: str,
                     email: str, phone: str = '', privilege_level: str = 'viewer') -> dict:
-        """Create a new user."""
-        df = self._load_users()
+        try:
+            with get_cursor() as cur:
+                cur.execute("SELECT user_id FROM users WHERE username=%s", (username,))
+                if cur.fetchone():
+                    return {'success': False, 'error': 'Username already exists'}
+                if email:
+                    cur.execute("SELECT user_id FROM users WHERE email=%s", (email,))
+                    if cur.fetchone():
+                        return {'success': False, 'error': 'Email already exists'}
 
-        # Check uniqueness
-        if not df.empty:
-            if username in df['username'].values:
-                return {'success': False, 'error': 'Username already exists'}
-            if email and email in df['email'].values:
-                return {'success': False, 'error': 'Email already exists'}
-
-        user = {
-            'user_id': str(uuid.uuid4()),
-            'username': username,
-            'password_hash': _hash_password(password),
-            'full_name': full_name,
-            'email': email,
-            'phone': phone,
-            'privilege_level': privilege_level,
-            'is_active': True,
-            'created_at': datetime.now().isoformat(),
-            'last_login': '',
-            'login_count': 0,
-            'failed_login_count': 0,
-            'locked_until': '',
-        }
-
-        new_df = pd.DataFrame([user])
-        if df.empty:
-            combined = new_df
-        else:
-            combined = pd.concat([df, new_df], ignore_index=True)
-        self._save_users(combined)
-
-        return {'success': True, 'user_id': user['user_id']}
+            user_id = str(uuid.uuid4())
+            with get_cursor() as cur:
+                cur.execute(
+                    """INSERT INTO users
+                       (user_id,username,password_hash,full_name,email,phone,
+                        privilege_level,is_active,created_at,last_login,
+                        login_count,failed_login_count,locked_until)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (user_id, username, _hash_password(password), full_name,
+                     email, phone, privilege_level, True,
+                     datetime.now().isoformat(), '', 0, 0, '')
+                )
+            return {'success': True, 'user_id': user_id}
+        except Exception as e:
+            logger.error("create_user failed: %s", e)
+            return {'success': False, 'error': str(e)}
 
     def update_user(self, user_id: str, **kwargs) -> bool:
-        """Update user fields (except password — use change_password)."""
-        df = self._load_users()
-        if df.empty:
+        kwargs.pop('user_id', None)
+        kwargs.pop('password_hash', None)
+        if not kwargs:
+            return True
+        try:
+            self._update_user_fields(user_id, **kwargs)
+            return True
+        except Exception as e:
+            logger.error("update_user failed: %s", e)
             return False
-        mask = df['user_id'] == user_id
-        if not mask.any():
-            return False
-
-        for key, value in kwargs.items():
-            if key in df.columns and key not in ('user_id', 'password_hash'):
-                df.loc[mask, key] = value
-
-        self._save_users(df)
-        return True
 
     def change_password(self, user_id: str, new_password: str) -> bool:
-        """Change user's password."""
-        df = self._load_users()
-        if df.empty:
+        try:
+            self._update_user_fields(
+                user_id,
+                password_hash=_hash_password(new_password),
+                failed_login_count=0,
+                locked_until=''
+            )
+            return True
+        except Exception as e:
+            logger.error("change_password failed: %s", e)
             return False
-        mask = df['user_id'] == user_id
-        if not mask.any():
-            return False
-
-        df.loc[mask, 'password_hash'] = _hash_password(new_password)
-        df.loc[mask, 'failed_login_count'] = 0
-        df.loc[mask, 'locked_until'] = ''
-        self._save_users(df)
-        return True
 
     def toggle_user_active(self, user_id: str) -> bool:
-        """Toggle user active/inactive."""
-        df = self._load_users()
-        if df.empty:
+        try:
+            with get_cursor() as cur:
+                cur.execute("SELECT is_active FROM users WHERE user_id=%s", (user_id,))
+                row = cur.fetchone()
+                if not row:
+                    return False
+                cur.execute(
+                    "UPDATE users SET is_active=%s WHERE user_id=%s",
+                    (not row['is_active'], user_id)
+                )
+            return True
+        except Exception as e:
+            logger.error("toggle_user_active failed: %s", e)
             return False
-        mask = df['user_id'] == user_id
-        if not mask.any():
-            return False
-
-        current = df.loc[mask, 'is_active'].values[0]
-        df.loc[mask, 'is_active'] = not current
-        self._save_users(df)
-        return True
 
     def delete_user(self, user_id: str) -> bool:
-        """Delete a user."""
-        df = self._load_users()
-        if df.empty:
+        try:
+            with get_cursor() as cur:
+                cur.execute("DELETE FROM users WHERE user_id=%s", (user_id,))
+                return cur.rowcount > 0
+        except Exception as e:
+            logger.error("delete_user failed: %s", e)
             return False
-        mask = df['user_id'] == user_id
-        if not mask.any():
-            return False
-        df = df[~mask]
-        self._save_users(df)
-        return True
 
     # ── Login History ─────────────────────────────────────────────
 
     def get_login_history(self, limit: int = 100) -> list:
-        """Get login history, most recent first."""
-        if not os.path.exists(LOGIN_HISTORY_FILE):
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM login_history ORDER BY timestamp DESC LIMIT %s",
+                    (limit,)
+                )
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error("get_login_history failed: %s", e)
             return []
-        df = pd.read_parquet(LOGIN_HISTORY_FILE)
-        df = df.sort_values('timestamp', ascending=False)
-        if limit:
-            df = df.head(limit)
-        return df.to_dict('records')
 
     def get_user_login_history(self, user_id: str, limit: int = 50) -> list:
-        """Get login history for a specific user."""
-        if not os.path.exists(LOGIN_HISTORY_FILE):
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM login_history WHERE user_id=%s "
+                    "ORDER BY timestamp DESC LIMIT %s",
+                    (user_id, limit)
+                )
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error("get_user_login_history failed: %s", e)
             return []
-        df = pd.read_parquet(LOGIN_HISTORY_FILE)
-        df = df[df['user_id'] == user_id]
-        df = df.sort_values('timestamp', ascending=False)
-        if limit:
-            df = df.head(limit)
-        return df.to_dict('records')
 
     # ── Statistics ────────────────────────────────────────────────
 
     def get_auth_stats(self) -> dict:
-        """Get authentication statistics."""
-        df = self._load_users()
-        if df.empty:
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS total, "
+                    "SUM(CASE WHEN is_active THEN 1 ELSE 0 END) AS active, "
+                    "privilege_level FROM users GROUP BY privilege_level"
+                )
+                rows = cur.fetchall()
+
+            total = sum(r['total'] for r in rows)
+            active = sum(r['active'] or 0 for r in rows)
+            priv = {r['privilege_level']: r['total'] for r in rows}
+
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS cnt FROM login_history WHERE timestamp >= %s",
+                    (datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),)
+                )
+                recent = cur.fetchone()['cnt']
+
+            return {
+                'total_users': total,
+                'active_users': active,
+                'locked_users': 0,
+                'privilege_breakdown': priv,
+                'recent_logins': recent,
+                'privilege_viewer': priv.get('viewer', 0),
+                'privilege_data_entry': priv.get('data_entry', 0),
+                'privilege_operator': priv.get('operator', 0),
+                'privilege_manager': priv.get('manager', 0),
+                'privilege_admin': priv.get('admin', 0),
+                'privilege_super_admin': priv.get('super_admin', 0),
+            }
+        except Exception as e:
+            logger.error("get_auth_stats failed: %s", e)
             return {
                 'total_users': 0, 'active_users': 0, 'locked_users': 0,
                 'privilege_breakdown': {}, 'recent_logins': 0,
+                'privilege_viewer': 0, 'privilege_data_entry': 0,
+                'privilege_operator': 0, 'privilege_manager': 0,
+                'privilege_admin': 0, 'privilege_super_admin': 0,
             }
-
-        total = len(df)
-        active = len(df[df['is_active'] == True])
-        locked = 0
-        now = datetime.now()
-        for _, row in df.iterrows():
-            if row.get('locked_until') and row['locked_until']:
-                try:
-                    if datetime.fromisoformat(row['locked_until']) > now:
-                        locked += 1
-                except (ValueError, TypeError):
-                    pass
-
-        # Privilege breakdown
-        priv = df['privilege_level'].value_counts().to_dict() if 'privilege_level' in df.columns else {}
-
-        # Recent logins (last 24h)
-        recent = 0
-        if os.path.exists(LOGIN_HISTORY_FILE):
-            hist = pd.read_parquet(LOGIN_HISTORY_FILE)
-            hist['ts'] = pd.to_datetime(hist['timestamp'])
-            recent = len(hist[hist['ts'] >= (now - pd.Timedelta(hours=24))])
-
-        return {
-            'total_users': total,
-            'active_users': active,
-            'locked_users': locked,
-            'privilege_breakdown': priv,
-            'recent_logins': recent,
-            # Flat privilege counts for infographic charts
-            'privilege_viewer': priv.get('viewer', 0),
-            'privilege_data_entry': priv.get('data_entry', 0),
-            'privilege_operator': priv.get('operator', 0),
-            'privilege_manager': priv.get('manager', 0),
-            'privilege_admin': priv.get('admin', 0),
-            'privilege_super_admin': priv.get('super_admin', 0),
-        }
 
 
 # ── Decorator ─────────────────────────────────────────────────────

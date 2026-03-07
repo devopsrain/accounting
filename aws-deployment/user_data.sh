@@ -57,6 +57,25 @@ EOF
 chown businessapp:businessapp /opt/ethiopian-business/.env
 chmod 600 /opt/ethiopian-business/.env
 
+# Initialise PostgreSQL schema (idempotent - safe to re-run)
+sudo -u businessapp bash -c '
+  source /opt/ethiopian-business/.env 2>/dev/null || true
+  export DATABASE_URL
+  /opt/ethiopian-business/venv/bin/python3 -c "
+import os, psycopg2
+url = os.environ.get(\"DATABASE_URL\", \"\")
+if url:
+    conn = psycopg2.connect(url)
+    with open(\"/opt/ethiopian-business/aws-deployment/init_db.sql\") as f:
+        conn.cursor().execute(f.read())
+    conn.commit()
+    conn.close()
+    print(\"DB schema initialised\")
+else:
+    print(\"DATABASE_URL not set - skipping schema init\")
+" || echo "DB schema init failed (non-fatal)"
+'
+
 # Production configuration loaded via .env and run_production.py
 
 # Create application startup script
