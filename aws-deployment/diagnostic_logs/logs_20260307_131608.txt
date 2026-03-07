@@ -1,0 +1,75 @@
+﻿Ethiopian Business Management System - Full Log Dump
+Timestamp: 20260307_131608
+
+=== NginxErr ===
+2026/03/07 12:04:01 [error] 8513#8513: *159 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:04:06 [error] 8513#8513: *161 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:04:31 [error] 8513#8513: *163 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:04:36 [error] 8513#8513: *165 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:05:01 [error] 8513#8513: *167 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:05:06 [error] 8513#8513: *169 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:05:31 [error] 8513#8513: *171 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:05:36 [error] 8513#8513: *173 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:06:01 [error] 8513#8513: *176 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:06:06 [error] 8513#8513: *178 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:06:31 [error] 8513#8513: *180 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:06:36 [error] 8513#8513: *182 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:07:01 [error] 8513#8513: *184 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:07:06 [error] 8513#8513: *186 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:07:31 [error] 8513#8513: *188 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:07:36 [error] 8513#8513: *190 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:08:01 [error] 8513#8513: *192 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:08:06 [error] 8513#8513: *194 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:08:31 [error] 8513#8513: *196 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:08:36 [error] 8513#8513: *198 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:09:01 [error] 8513#8513: *200 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:09:06 [error] 8513#8513: *202 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:09:31 [error] 8513#8513: *204 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:09:36 [error] 8513#8513: *206 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:10:01 [error] 8513#8513: *208 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:10:06 [error] 8513#8513: *210 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:10:31 [error] 8513#8513: *212 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:10:36 [error] 8513#8513: *214 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:11:01 [error] 8513#8513: *216 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:11:06 [error] 8513#8513: *218 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:11:31 [error] 8513#8513: *220 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:11:36 [error] 8513#8513: *222 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:12:02 [error] 8513#8513: *224 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:12:06 [error] 8513#8513: *226 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:12:32 [error] 8513#8513: *228 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:12:36 [error] 8513#8513: *230 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:13:02 [error] 8513#8513: *232 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:13:06 [error] 8513#8513: *234 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:13:32 [error] 8513#8513: *236 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:13:36 [error] 8513#8513: *238 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:14:02 [error] 8513#8513: *240 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:14:06 [error] 8513#8513: *242 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:14:32 [error] 8513#8513: *244 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:14:36 [error] 8513#8513: *246 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:15:02 [error] 8513#8513: *248 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:15:06 [error] 8513#8513: *250 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:15:32 [error] 8513#8513: *252 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:15:36 [error] 8513#8513: *254 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:16:02 [error] 8513#8513: *256 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.2.71, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+2026/03/07 12:16:06 [error] 8513#8513: *258 connect() failed (111: Unknown error) while connecting to upstream, client: 10.0.1.135, server: _, request: "GET /health HTTP/1.1", upstream: "http://127.0.0.1:5000/health", host: "10.0.1.106"
+
+=== AppLog ===
+
+Error: Error: '/var/log/ethiopian-business-error.log' isn't writable [PermissionError(13, 'Permission denied')]
+
+
+Error: Error: '/var/log/ethiopian-business-error.log' isn't writable [PermissionError(13, 'Permission denied')]
+
+
+Error: Error: '/var/log/ethiopian-business-error.log' isn't writable [PermissionError(13, 'Permission denied')]
+
+
+Error: Error: '/var/log/ethiopian-business-error.log' isn't writable [PermissionError(13, 'Permission denied')]
+
+
+Error: Error: '/var/log/ethiopian-business-error.log' isn't writable [PermissionError(13, 'Permission denied')]
+
+
+Error: Error: '/var/log/ethiopian-business-error.log' isn't writable [PermissionError(13, 'Permission denied')]
+
+
