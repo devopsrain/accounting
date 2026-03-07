@@ -1,0 +1,1 @@
+{"commands":["cat /var/log/user_data.log","cat /opt/ethiopian-business/.deployment_status","sudo tail -20 /var/log/ethiopian-business-error.log"]}

@@ -72,8 +72,11 @@ from dotenv import load_dotenv
 env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 load_dotenv(env_path, override=True)
 
-# Ensure the project root is on the path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Ensure the project root AND web/ directory are on the path
+# web/ is needed because app.py does bare imports like 'from tenant_data_store import ...'
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.join(project_root, 'web'))
 
 # Import the module-level Flask app (this triggers app.py module-level code)
 from web.app import app
