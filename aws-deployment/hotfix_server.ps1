@@ -1,7 +1,3 @@
-<#
-.SYNOPSIS
-    Cleaned Hot-fix for Ethiopian Business Server
-#>
 param(
     [Parameter(Mandatory=$true)]
     [string]$ServerIP,
@@ -13,31 +9,29 @@ function Write-Fail { param($m) Write-Host "  [FAIL]  $m" -ForegroundColor Red }
 function Write-Step { param($m) Write-Host "`n=> $m" -ForegroundColor Cyan }
 
 $sshTarget = "ubuntu@$ServerIP"
-$sshOpts   = @('-o','StrictHostKeyChecking=no','-o','ConnectTimeout=10','-i',$SSHKey)
+$sshOpts   = @("-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", "-i", "$SSHKey")
 
 Write-Host "`n========================================" -ForegroundColor Yellow
-Write-Host "  Ethiopian Business — Fixed Hotfix" -ForegroundColor Yellow
+Write-Host "  Ethiopian Business — Final Hotfix" -ForegroundColor Yellow
 Write-Host "  Target: $ServerIP" -ForegroundColor Yellow
 Write-Host "========================================`n"
 
 # -- Step 1: Test SSH --
 Write-Step "Testing SSH connectivity..."
-$test = & ssh @sshOpts $sshTarget "echo OK" 2>&1
+$test = & ssh @sshOpts $sshTarget "echo OK" 2>$null
 if ($test -notmatch "OK") {
-    Write-Fail "Cannot SSH to $ServerIP. Check security groups/key."
+    Write-Fail "Cannot SSH to $ServerIP. Check security groups or SSH key path."
     exit 1
 }
 Write-OK "SSH connected"
 
 # -- Step 2: Fix Log Permissions --
 Write-Step "Fixing log file permissions..."
-$logCmd = "sudo touch /var/log/ethiopian-business.log /var/log/ethiopian-business-error.log; " +
-          "sudo chown businessapp:businessapp /var/log/ethiopian-business*; echo LOGFIX_OK"
+$logCmd = "sudo touch /var/log/ethiopian-business.log /var/log/ethiopian-business-error.log; sudo chown businessapp:businessapp /var/log/ethiopian-business*; echo LOGFIX_OK"
 & ssh @sshOpts $sshTarget $logCmd | ForEach-Object { if ($_ -match "LOGFIX_OK") { Write-OK "Logs fixed" } }
 
 # -- Step 3: Patch run_production.py --
-# Using a single-quoted string to prevent local variable expansion
-Write-Step "Patching run_production.py naming conflict..."
+Write-Step "Patching run_production.py..."
 $pyPatch = @'
 sudo tee /opt/ethiopian-business/run_production.py << 'PYEOF'
 import os
@@ -63,14 +57,15 @@ Write-Step "Restarting Supervisor..."
 $restartCmd = "sudo supervisorctl reread; sudo supervisorctl update; sudo supervisorctl restart ethiopian-business; sleep 2; sudo supervisorctl status ethiopian-business"
 & ssh @sshOpts $sshTarget $restartCmd | ForEach-Object { 
     if ($_ -match "RUNNING") { Write-OK "App is RUNNING" }
-    elseif ($_ -match "STOPPED|FATAL") { Write-Fail "App status: $_" }
+    elseif ($_ -match "STOPPED|FATAL|BACKOFF") { Write-Fail "App status: $_" }
 }
 
 # -- Step 5: External Health Check --
 Write-Step "External verification..."
 try {
-    $resp = Invoke-WebRequest -Uri "http://$ServerIP/health" -UseBasicParsing -TimeoutSec 5
+    $url = "http://$ServerIP/health"
+    $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
     Write-OK "External health check: HTTP $($resp.StatusCode)"
 } catch {
-    Write-Fail "Health check failed: $($_.Exception.Message)"
+    Write-Fail "Health check failed. The app might still be starting or a 500 error occurred."
 }
