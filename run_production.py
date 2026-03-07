@@ -33,6 +33,11 @@ os.environ.setdefault('DEFAULT_DATA_ENTRY_PASSWORD', 'Data2026!Secure')
 # Import the Flask app
 from web.app import app
 
+# Health check endpoint for ALB — must bypass auth gate
+@app.route('/health')
+def health_check():
+    return {'status': 'healthy', 'service': 'Ethiopian Business Management System'}, 200
+
 if __name__ == '__main__':
     # This will only run if called directly (not via gunicorn)
     app.run(host='0.0.0.0', port=5000, debug=False)

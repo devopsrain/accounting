@@ -94,6 +94,14 @@ chown businessapp:businessapp /opt/ethiopian-business/run_production.py
 chmod +x /opt/ethiopian-business/run_production.py
 
 # Configure Supervisor for process management (env vars loaded by run_production.py via dotenv)
+# First create log files owned by businessapp so gunicorn can write to them
+touch /var/log/ethiopian-business.log
+touch /var/log/ethiopian-business-error.log
+touch /var/log/ethiopian-business-access.log
+chown businessapp:businessapp /var/log/ethiopian-business.log
+chown businessapp:businessapp /var/log/ethiopian-business-error.log
+chown businessapp:businessapp /var/log/ethiopian-business-access.log
+
 cat > /etc/supervisor/conf.d/ethiopian-business.conf << 'EOF'
 [program:ethiopian-business]
 command=/opt/ethiopian-business/venv/bin/gunicorn --bind 127.0.0.1:5000 --workers 3 --timeout 120 --access-logfile /var/log/ethiopian-business-access.log --error-logfile /var/log/ethiopian-business-error.log run_production:app
@@ -166,8 +174,22 @@ timeout 60 bash -c 'until pg_isready -h ${db_host} -p 5432 -U ${db_username} 2>/
 
 # Initialize application data directories
 cd /opt/ethiopian-business
+# Create ALL data directories the app needs (data stores use web/data/ and sub-paths)
 sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data/platform
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data/auth
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data/bids
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data/bids/documents
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data/backups
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data/siem
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/data/versions
 sudo -u businessapp mkdir -p /opt/ethiopian-business/web/exports
+sudo -u businessapp mkdir -p /opt/ethiopian-business/data
+# Also create a data/ dir at the project root (some stores use relative paths)
+sudo -u businessapp mkdir -p /opt/ethiopian-business/web/sample_files
+# Ensure businessapp owns everything
+chown -R businessapp:businessapp /opt/ethiopian-business/web/data
+chown -R businessapp:businessapp /opt/ethiopian-business/data
 echo "Application data directories created."
 
 # Create log rotation for application logs

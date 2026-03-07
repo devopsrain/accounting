@@ -71,43 +71,28 @@ ledger = GeneralLedger()
 # Every request MUST be authenticated except for the explicit whitelist
 # below. This ensures no route — present or future — is ever accessible
 # without logging in.
-# --- UPDATE YOUR PUBLIC_ENDPOINTS LIST ---
 PUBLIC_ENDPOINTS = frozenset({
-    'health_check',                   # <--- ADD THIS
     'auth.login',
     'auth.logout',
     'auth.register',
     'auth.access_denied',
-    'multicompany.company_login',
-    'multicompany.company_register',
-    'static',
-    'provider_admin.provider_dashboard',
+    'multicompany.company_login',     # multi-company portal login
+    'multicompany.company_register',  # multi-company portal register
+    'static',                         # CSS / JS / images
+    'provider_admin.provider_dashboard',  # provider login handled internally
     'provider_admin.provider_login',
     'provider_admin.provider_api_tenants',
     'provider_admin.provider_api_toggle_module',
-    'sales.landing',
-    'sales.contact',
+    'sales.landing',                  # public sales / marketing site
+    'sales.contact',                  # contact-form handler
+    'health_check',                   # ALB / monitoring health endpoint
 })
-
-# --- ADD THIS ROUTE ABOVE YOUR index() FUNCTION ---
-@app.route('/health')
-@csrf.exempt  # Ensure health checks don't require CSRF tokens
-def health_check():
-    """
-    Service health check endpoint for Nginx/AWS ALB.
-    Bypasses authentication and license gates.
-    """
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'service': 'ethiopian-business-logic'
-    }), 200
 
 # URL prefixes that are always public (login-related paths).
 # This is a safety net in case blueprint names change.
 PUBLIC_PREFIXES = ('/auth/login', '/auth/logout', '/auth/register',
                    '/auth/access-denied', '/company/login', '/company/register',
-                   '/static/', '/provider/', '/sales/')
+                   '/static/', '/provider/', '/sales/', '/health')
 
 # ── Multi-Tenant Context & Module Licensing ───────────────────────
 # After authentication, every request gets a company context set on g.
@@ -140,7 +125,7 @@ LICENSE_EXEMPT_PREFIXES = (
 def require_login_globally():
     """Redirect every unauthenticated request to the login page."""
     # Allow health-check / favicon / static assets through
-    if request.path.startswith('/static/') or request.path == '/favicon.ico':
+    if request.path == '/health' or request.path.startswith('/static/') or request.path == '/favicon.ico':
         return None
 
     # Allow explicitly public endpoints
