@@ -78,14 +78,13 @@ app.config['SESSION_COOKIE_SECURE'] = os.environ.get(
 csrf = CSRFProtect(app)
 
 # ── Rate Limiter & Response Cache ───────────────────────────────────
-from extensions import limiter, cache
+from extensions import limiter, cache, LIMITER_AVAILABLE, CACHE_AVAILABLE
 limiter.init_app(app)
-# SimpleCache = in-process (fine for single instance).
-# Swap to CACHE_TYPE='RedisCache' + CACHE_REDIS_URL=... for multi-instance.
-cache.init_app(app, config={
-    'CACHE_TYPE': 'SimpleCache',
-    'CACHE_DEFAULT_TIMEOUT': 300,
-})
+if CACHE_AVAILABLE:
+    cache.init_app(app, config={
+        'CACHE_TYPE': 'SimpleCache',
+        'CACHE_DEFAULT_TIMEOUT': 300,
+    })
 
 import re as _re
 from flask_wtf.csrf import generate_csrf
@@ -210,7 +209,10 @@ def require_login_globally():
         if request.path.startswith('/api/') or request.is_json:
             return jsonify({'error': 'Authentication required', 'status': 401}), 401
         flash('Please log in to continue.', 'warning')
-        return redirect(url_for('auth.login'))
+        try:
+            return redirect(url_for('auth.login'))
+        except Exception:
+            return redirect('/auth/login')
 
 
 @app.before_request
