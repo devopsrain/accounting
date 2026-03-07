@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime, date
 from typing import Dict, List, Any, Optional
 
-from db import get_cursor, get_conn
+from db import get_cursor, get_conn, get_tenant_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +21,10 @@ class JournalEntryDataStore:
 
     def read_journal_entries(self, company_id: str = None,
                              start_date=None, end_date=None) -> pd.DataFrame:
+        cid = company_id or 'default'
         try:
-            conditions = ["is_active=TRUE"]
-            params = []
-            if company_id:
-                conditions.append("company_id=%s")
-                params.append(company_id)
+            conditions = ["is_active=TRUE", "company_id=%s"]
+            params = [cid]
             if start_date:
                 conditions.append("entry_date >= %s")
                 params.append(str(start_date))
@@ -34,7 +32,7 @@ class JournalEntryDataStore:
                 conditions.append("entry_date <= %s")
                 params.append(str(end_date))
             where = " AND ".join(conditions)
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 cur.execute(f"SELECT * FROM journal_entries WHERE {where} ORDER BY entry_date DESC", params)
                 rows = cur.fetchall()
                 return pd.DataFrame([dict(r) for r in rows]) if rows else pd.DataFrame()

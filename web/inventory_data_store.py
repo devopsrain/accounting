@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime, date
 from typing import Dict, List, Any, Optional
 
-from db import get_cursor, get_conn
+from db import get_cursor, get_conn, get_tenant_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class InventoryDataStore:
     def get_items(self, company_id: str = None) -> pd.DataFrame:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 cur.execute(
                     "SELECT * FROM inventory_items WHERE company_id=%s AND status='active' "
                     "ORDER BY name",
@@ -71,7 +71,7 @@ class InventoryDataStore:
     def get_item(self, item_id: str, company_id: str = None) -> Optional[dict]:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 cur.execute(
                     "SELECT * FROM inventory_items WHERE item_id=%s AND company_id=%s",
                     (item_id, cid)
@@ -149,7 +149,7 @@ class InventoryDataStore:
     def get_categories(self, company_id: str = None) -> List[dict]:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 cur.execute(
                     "SELECT * FROM inventory_categories WHERE company_id=%s ORDER BY name",
                     (cid,)
@@ -199,7 +199,7 @@ class InventoryDataStore:
     def get_movements(self, item_id: str = None, company_id: str = None) -> List[dict]:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 if item_id:
                     cur.execute(
                         "SELECT * FROM inventory_movements WHERE company_id=%s AND item_id=%s "
@@ -246,7 +246,7 @@ class InventoryDataStore:
     def get_requisitions(self, company_id: str = None, status: str = None) -> List[dict]:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 if status:
                     cur.execute(
                         "SELECT * FROM inventory_requisitions WHERE company_id=%s AND status=%s "

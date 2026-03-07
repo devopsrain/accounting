@@ -37,7 +37,7 @@ class EmployeeDataStore:
             with get_cursor() as cur:
                 cur.execute(
                     "SELECT * FROM employees WHERE company_id=%s AND is_active=TRUE "
-                    "ORDER BY name",
+                    "ORDER BY name LIMIT 500",
                     (cid,)
                 )
                 rows = cur.fetchall()
@@ -51,7 +51,7 @@ class EmployeeDataStore:
     def _read_all_employees_unfiltered(self) -> pd.DataFrame:
         try:
             with get_cursor() as cur:
-                cur.execute("SELECT * FROM employees ORDER BY name")
+                cur.execute("SELECT * FROM employees ORDER BY name LIMIT 500")
                 rows = cur.fetchall()
                 return pd.DataFrame([dict(r) for r in rows]) if rows else pd.DataFrame()
         except Exception as e:

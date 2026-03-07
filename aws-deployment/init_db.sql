@@ -599,3 +599,231 @@ CREATE TABLE IF NOT EXISTS version_registry (
     is_active    BOOLEAN NOT NULL DEFAULT FALSE,
     changelog    TEXT NOT NULL DEFAULT ''
 );
+
+-- ──────────────────────────────────────────────────────────────
+-- API TOKENS (Bearer-token auth for /api/* routes)
+-- ──────────────────────────────────────────────────────────────
+-- Token format: "<token_id>.<secret>"
+-- token_id (16 hex) is stored as PK for O(1) lookup.
+-- secret_hash is SHA-256 of the 64-hex secret portion.
+
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id            TEXT PRIMARY KEY,          -- 16-hex lookup key
+    user_id       TEXT NOT NULL,
+    secret_hash   TEXT NOT NULL,             -- SHA-256 of secret
+    label         TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL DEFAULT '',
+    last_used_at  TEXT NOT NULL DEFAULT '',
+    is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT fk_api_tokens_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
+
+-- ──────────────────────────────────────────────────────────────
+-- ROW-LEVEL SECURITY (multi-tenant data isolation at DB level)
+-- ──────────────────────────────────────────────────────────────
+-- When Python code calls:
+--   SET LOCAL app.current_company_id = '<id>'
+-- these policies ensure only that tenant's rows are visible,
+-- even if the application-level WHERE clause is accidentally omitted.
+--
+-- Bypass applies to the DB superuser so migrations still work.
+-- Use get_tenant_cursor(company_id) from db.py to set the variable.
+
+DO $$ BEGIN
+    -- bid_records
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='bid_records' AND policyname='rls_bid_records_tenant'
+    ) THEN
+        ALTER TABLE bid_records ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_bid_records_tenant ON bid_records
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- vat_income
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='vat_income' AND policyname='rls_vat_income_tenant'
+    ) THEN
+        ALTER TABLE vat_income ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_vat_income_tenant ON vat_income
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- vat_expenses
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='vat_expenses' AND policyname='rls_vat_expenses_tenant'
+    ) THEN
+        ALTER TABLE vat_expenses ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_vat_expenses_tenant ON vat_expenses
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- vat_capital
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='vat_capital' AND policyname='rls_vat_capital_tenant'
+    ) THEN
+        ALTER TABLE vat_capital ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_vat_capital_tenant ON vat_capital
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- income_records
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='income_records' AND policyname='rls_income_records_tenant'
+    ) THEN
+        ALTER TABLE income_records ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_income_records_tenant ON income_records
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- expense_records
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='expense_records' AND policyname='rls_expense_records_tenant'
+    ) THEN
+        ALTER TABLE expense_records ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_expense_records_tenant ON expense_records
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- chart_of_accounts
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='chart_of_accounts' AND policyname='rls_chart_of_accounts_tenant'
+    ) THEN
+        ALTER TABLE chart_of_accounts ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_chart_of_accounts_tenant ON chart_of_accounts
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- journal_entries
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='journal_entries' AND policyname='rls_journal_entries_tenant'
+    ) THEN
+        ALTER TABLE journal_entries ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_journal_entries_tenant ON journal_entries
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- transactions
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='transactions' AND policyname='rls_transactions_tenant'
+    ) THEN
+        ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_transactions_tenant ON transactions
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- flagged_accounts
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='flagged_accounts' AND policyname='rls_flagged_accounts_tenant'
+    ) THEN
+        ALTER TABLE flagged_accounts ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_flagged_accounts_tenant ON flagged_accounts
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- cpo_records
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='cpo_records' AND policyname='rls_cpo_records_tenant'
+    ) THEN
+        ALTER TABLE cpo_records ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_cpo_records_tenant ON cpo_records
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- inventory_items
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='inventory_items' AND policyname='rls_inventory_items_tenant'
+    ) THEN
+        ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_inventory_items_tenant ON inventory_items
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- inventory_categories
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='inventory_categories' AND policyname='rls_inventory_categories_tenant'
+    ) THEN
+        ALTER TABLE inventory_categories ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_inventory_categories_tenant ON inventory_categories
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- inventory_movements
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='inventory_movements' AND policyname='rls_inventory_movements_tenant'
+    ) THEN
+        ALTER TABLE inventory_movements ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_inventory_movements_tenant ON inventory_movements
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+
+    -- inventory_requisitions
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename='inventory_requisitions' AND policyname='rls_inventory_requisitions_tenant'
+    ) THEN
+        ALTER TABLE inventory_requisitions ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY rls_inventory_requisitions_tenant ON inventory_requisitions
+            FOR ALL USING (
+                company_id = NULLIF(current_setting('app.current_company_id', TRUE), '')
+                OR NULLIF(current_setting('app.current_company_id', TRUE), '') IS NULL
+            );
+    END IF;
+END $$;

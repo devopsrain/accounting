@@ -7,7 +7,10 @@ Flask routes for multi-company user portal and management system
 from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash
 from datetime import datetime, date
 from typing import Dict, List, Optional
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from models.multi_company import (
     Company, User, UserRole, MultiCompanyUserManager, 
@@ -320,23 +323,52 @@ def accept_invitation(invitation_id: str):
 # Payroll routes (company-specific)
 @multicompany_bp.route('/employees')
 def employees():
-    """Company employees list"""
-    if not require_login():
-        return redirect(url_for('multicompany.login'))
-    
-    company_id = session.get('current_company_id')
-    if not require_company_access(company_id):
-        return redirect(url_for('multicompany.select_company'))
-    
-    user = get_current_user()
-    payroll_manager.set_user_context(user.user_id, company_id)
-    
-    context = payroll_manager.get_current_context()
-    employees = list(context.employees.values()) if context else []
-    
+    """Company employees list — loaded from PostgreSQL employees table."""
+    if not session.get('logged_in'):
+        return redirect(url_for('auth.login'))
+
+    company_id = session.get('current_company_id', 'default')
+
+    employees_list = []
+    try:
+        from employee_data_store import employee_store
+        df = employee_store.read_all_employees(company_id)
+        if not df.empty:
+            for _, row in df.iterrows():
+                emp = row.to_dict()
+                # Normalise fields expected by the template
+                name = str(emp.get('name', '')).strip()
+                parts = name.split(' ', 1)
+                emp.setdefault('first_name', parts[0] if parts else '')
+                emp.setdefault('last_name', parts[1] if len(parts) > 1 else '')
+                emp.setdefault('full_name', name)
+                emp.setdefault('employee_number', emp.get('employee_id', ''))
+                emp.setdefault('email', '')
+                emp.setdefault('base_salary', emp.get('basic_salary', 0))
+                # Wrap category string so template's employee.category.value works
+                cat_val = emp.get('category', '')
+                emp['category'] = type('_C', (), {'value': cat_val})()
+                hire = emp.get('hire_date')
+                if hire and not hasattr(hire, 'strftime'):
+                    from datetime import date as _date
+                    try:
+                        emp['hire_date'] = _date.fromisoformat(str(hire)[:10])
+                    except Exception:
+                        emp['hire_date'] = None
+                employees_list.append(emp)
+    except Exception as e:
+        logger.error("employees: loading from DB failed: %s", e)
+
+    from flask import g
+    company_obj = getattr(g, 'tenant', None) or {}
+    company_display = type('_T', (), {
+        'name': company_obj.get('company_name', 'Company') if isinstance(company_obj, dict) else 'Company'
+    })()
+
     return render_template('multicompany/employees.html',
-                         employees=employees,
-                         can_manage=payroll_manager.check_permission(UserRole.HR_MANAGER))
+                           employees=employees_list,
+                           company=company_display,
+                           can_manage=True)
 
 @multicompany_bp.route('/add-employee', methods=['POST'])
 def add_employee():

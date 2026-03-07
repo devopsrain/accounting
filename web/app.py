@@ -5,21 +5,54 @@ import logging
 import os
 import secrets
 import sys
+import uuid as _uuid
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, g, abort
 from flask_wtf.csrf import CSRFProtect
 from datetime import datetime, date
 
-# ── Logging Setup ─────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+# ── Structured Logging Setup ────────────────────────────────────────
+# Emits JSON lines when python-json-logger is installed (production);
+# falls back to plain text for local development.
+try:
+    from pythonjsonlogger import jsonlogger as _jlog
+
+    class _RequestIdFilter(logging.Filter):
+        """Injects request_id into every log record during a Flask request."""
+        def filter(self, record):
+            try:
+                from flask import g as _g, has_request_context as _hrc
+                record.request_id = getattr(_g, 'request_id', '-') if _hrc() else '-'
+            except Exception:
+                record.request_id = '-'
+            return True
+
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(_jlog.JsonFormatter(
+        '%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s'
+    ))
+    _handler.addFilter(_RequestIdFilter())
+    logging.root.handlers.clear()
+    logging.root.addHandler(_handler)
+    logging.root.setLevel(logging.INFO)
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
 logger = logging.getLogger(__name__)
 
 # Add the parent directory to the path for model/core imports (single entry point)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# ── AWS Secrets Manager (no-op in local dev / outside AWS) ───────────────
+# Called before any os.environ.get() so secrets are available at config time.
+try:
+    from secrets_loader import load_secrets
+    load_secrets()
+except ImportError:
+    pass
 
 from models.account import Account, AccountType, AccountSubType
 from models.journal_entry import JournalEntry, JournalEntryBuilder
@@ -44,6 +77,16 @@ app.config['SESSION_COOKIE_SECURE'] = os.environ.get(
 # ── CSRF Protection ───────────────────────────────────────────────
 csrf = CSRFProtect(app)
 
+# ── Rate Limiter & Response Cache ───────────────────────────────────
+from extensions import limiter, cache
+limiter.init_app(app)
+# SimpleCache = in-process (fine for single instance).
+# Swap to CACHE_TYPE='RedisCache' + CACHE_REDIS_URL=... for multi-instance.
+cache.init_app(app, config={
+    'CACHE_TYPE': 'SimpleCache',
+    'CACHE_DEFAULT_TIMEOUT': 300,
+})
+
 import re as _re
 from flask_wtf.csrf import generate_csrf
 
@@ -63,6 +106,21 @@ def inject_csrf_token(response):
         )
         response.set_data(data)
     return response
+
+
+# ── Request ID Tracking ──────────────────────────────────────────
+@app.before_request
+def _set_request_id():
+    """Attach a short request ID to g for correlated logging and response headers."""
+    g.request_id = request.headers.get('X-Request-ID') or _uuid.uuid4().hex[:12]
+
+
+@app.after_request
+def _add_request_id_header(response):
+    """Echo the request ID so callers can correlate logs with responses."""
+    response.headers['X-Request-ID'] = getattr(g, 'request_id', '-')
+    return response
+
 
 # Global ledger instance
 ledger = GeneralLedger()
@@ -138,8 +196,19 @@ def require_login_globally():
         if request.path.startswith(prefix):
             return None
 
-    # If not logged in → redirect to login
+    # If not logged in — try Bearer token, then redirect/401
     if not session.get('logged_in'):
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            from auth_data_store import auth_store as _auth_store
+            token_user = _auth_store.validate_api_token(auth_header[7:].strip())
+            if token_user:
+                g.api_user = token_user
+                return None
+            return jsonify({'error': 'Invalid or expired API token', 'status': 401}), 401
+        # Return JSON 401 for API/AJAX paths; HTML redirect for browser paths
+        if request.path.startswith('/api/') or request.is_json:
+            return jsonify({'error': 'Authentication required', 'status': 401}), 401
         flash('Please log in to continue.', 'warning')
         return redirect(url_for('auth.login'))
 
@@ -153,9 +222,9 @@ def set_company_context():
       2. Default tenant from the platform (auto-created on first run)
 
     Also sets g.tenant with the full tenant record.
+    Tenant lookups are cached for 60 s to avoid a DB round-trip on every request.
     """
-    # Skip for unauthenticated / public requests
-    if not session.get('logged_in'):
+    if not session.get('logged_in') and not getattr(g, 'api_user', None):
         g.company_id = None
         g.tenant = None
         return None
@@ -168,7 +237,14 @@ def set_company_context():
         session['current_company_id'] = company_id
 
     g.company_id = company_id
-    g.tenant = tenant_store.get_tenant(company_id)
+
+    # Cache tenant record for 60 s — avoids a DB round-trip on every request
+    _cache_key = f'tenant:{company_id}'
+    g.tenant = cache.get(_cache_key)
+    if g.tenant is None:
+        g.tenant = tenant_store.get_tenant(company_id)
+        if g.tenant:
+            cache.set(_cache_key, g.tenant, timeout=60)
 
     # If tenant doesn't exist yet (e.g. legacy data), auto-create it
     if g.tenant is None:
@@ -178,6 +254,8 @@ def set_company_context():
             'subscription_tier': 'enterprise',
         }, created_by=session.get('username', 'system'))
         g.tenant = tenant_store.get_tenant(company_id)
+        if g.tenant:
+            cache.set(_cache_key, g.tenant, timeout=60)
 
 
 @app.before_request
@@ -412,251 +490,113 @@ def index():
 
 @app.route('/setup')
 def setup():
-    """Setup page - create standard chart of accounts"""
-    return render_template('setup.html')
+    return redirect('/accounts/dashboard')
 
 
 @app.route('/setup', methods=['POST'])
 def setup_accounts():
-    """Process setup of standard accounts"""
-    ledger.create_standard_chart_of_accounts()
-    flash(f'Successfully created {len(ledger.accounts)} standard accounts!', 'success')
-    return redirect(url_for('accounts'))
+    return redirect('/accounts/dashboard')
 
 
 @app.route('/accounts')
 def accounts():
-    """View all accounts"""
-    accounts_by_type = {}
-    for account in ledger.accounts.values():
-        acc_type = account.account_type.value
-        if acc_type not in accounts_by_type:
-            accounts_by_type[acc_type] = []
-        accounts_by_type[acc_type].append(account)
-    
-    # Sort accounts within each type by ID
-    for acc_type in accounts_by_type:
-        accounts_by_type[acc_type].sort(key=lambda x: x.account_id)
-    
-    return render_template('accounts.html', accounts_by_type=accounts_by_type)
+    return redirect('/accounts/')
 
 
 @app.route('/accounts/new')
 def new_account():
-    """Form to create new account"""
-    return render_template('new_account.html', account_types=AccountType)
+    return redirect('/accounts/add')
 
 
 @app.route('/accounts/new', methods=['POST'])
 def create_account():
-    """Create new account"""
-    account_id = request.form['account_id'].strip()
-    name = request.form['name'].strip()
-    account_type = AccountType(request.form['account_type'])
-    
-    if account_id in ledger.accounts:
-        flash('Account ID already exists!', 'error')
-        return redirect(url_for('new_account'))
-    
-    account = Account(account_id, name, account_type)
-    
-    if ledger.add_account(account):
-        flash(f'Account "{name}" created successfully!', 'success')
-    else:
-        flash('Failed to create account!', 'error')
-    
-    return redirect(url_for('accounts'))
+    return redirect('/accounts/add')
 
 
-@app.route('/journal-entry')
+@app.route('/journal-entry', methods=['GET', 'POST'])
 def journal_entry_form():
-    """Form to create journal entry"""
-    return render_template('journal_entry.html', accounts=ledger.accounts)
-
-
-@app.route('/journal-entry', methods=['POST'])
-def create_journal_entry():
-    """Create new journal entry"""
-    description = request.form['description'].strip()
-    reference = request.form.get('reference', '').strip()
-    
-    entry = JournalEntry(description=description, reference=reference)
-    
-    # Process entry lines
-    account_ids = request.form.getlist('account_id[]')
-    debit_amounts = request.form.getlist('debit_amount[]')
-    credit_amounts = request.form.getlist('credit_amount[]')
-    
-    for i, account_id in enumerate(account_ids):
-        if account_id and account_id in ledger.accounts:
-            debit = float(debit_amounts[i] or 0)
-            credit = float(credit_amounts[i] or 0)
-            
-            if debit > 0 or credit > 0:
-                entry.add_line(account_id, debit_amount=debit, credit_amount=credit)
-    
-    if len(entry.lines) >= 2:
-        if entry.validate():
-            if ledger.post_journal_entry(entry):
-                flash('Journal entry posted successfully!', 'success')
-            else:
-                flash('Failed to post journal entry!', 'error')
-        else:
-            flash('Journal entry is not balanced!', 'error')
-    else:
-        flash('Journal entry must have at least 2 lines!', 'error')
-    
-    return redirect(url_for('journal_entry_form'))
+    return redirect('/journal/')
 
 
 @app.route('/quick-transactions')
 def quick_transactions():
-    """Quick transaction templates"""
-    return render_template('quick_transactions.html')
+    return redirect('/transactions/')
 
 
 @app.route('/quick-sale', methods=['POST'])
 def quick_sale():
-    """Process quick cash sale"""
-    amount = float(request.form['amount'])
-    description = request.form['description'].strip()
-    
-    entry = JournalEntryBuilder.cash_sale("1000", "4000", amount, description)
-    
-    if ledger.post_journal_entry(entry):
-        flash(f'Cash sale of ${amount:,.2f} recorded successfully!', 'success')
-    else:
-        flash('Failed to record sale. Make sure accounts 1000 and 4000 exist.', 'error')
-    
-    return redirect(url_for('quick_transactions'))
+    return redirect('/transactions/')
 
 
 @app.route('/quick-expense', methods=['POST'])
 def quick_expense():
-    """Process quick expense"""
-    amount = float(request.form['amount'])
-    description = request.form['description'].strip()
-    expense_account = request.form['expense_account']
-    
-    entry = JournalEntryBuilder.expense_payment(expense_account, "1000", amount, description)
-    
-    if ledger.post_journal_entry(entry):
-        flash(f'Expense of ${amount:,.2f} recorded successfully!', 'success')
-    else:
-        flash('Failed to record expense. Check if accounts exist.', 'error')
-    
-    return redirect(url_for('quick_transactions'))
+    return redirect('/transactions/')
 
 
 @app.route('/reports/trial-balance')
 def trial_balance():
-    """Trial balance report"""
-    trial_balance_data = ledger.get_trial_balance()
-    
-    # Prepare data for template
-    accounts_data = []
-    total_debits = 0
-    total_credits = 0
-    
-    for account_id, balance in trial_balance_data.items():
-        account = ledger.get_account(account_id)
-        if balance >= 0:
-            total_debits += balance
-            accounts_data.append({
-                'id': account_id,
-                'name': account.name,
-                'debit': balance,
-                'credit': 0
-            })
-        else:
-            total_credits += -balance
-            accounts_data.append({
-                'id': account_id,
-                'name': account.name,
-                'debit': 0,
-                'credit': -balance
-            })
-    
-    return render_template('trial_balance.html', 
-                         accounts=accounts_data,
-                         total_debits=total_debits,
-                         total_credits=total_credits,
-                         as_of_date=datetime.now().strftime('%B %d, %Y'))
+    return redirect('/accounts/trial-balance')
 
 
 @app.route('/reports/income-statement')
 def income_statement():
-    """Income statement report"""
-    # Default to current year
-    now = datetime.now()
-    start_date = datetime(now.year, 1, 1)
-    end_date = now
-    
-    # Check if custom dates provided
-    if request.args.get('start_date'):
-        start_date = datetime.strptime(request.args.get('start_date'), '%Y-%m-%d')
-    if request.args.get('end_date'):
-        end_date = datetime.strptime(request.args.get('end_date'), '%Y-%m-%d')
-    
-    income_statement_data = ledger.get_income_statement(start_date, end_date)
-    
-    return render_template('income_statement.html', 
-                         data=income_statement_data,
-                         start_date=start_date.strftime('%Y-%m-%d'),
-                         end_date=end_date.strftime('%Y-%m-%d'))
+    return redirect('/income-expense/')
 
 
 @app.route('/reports/balance-sheet')
 def balance_sheet():
-    """Balance sheet report"""
-    as_of_date = datetime.now()
-    
-    if request.args.get('as_of_date'):
-        as_of_date = datetime.strptime(request.args.get('as_of_date'), '%Y-%m-%d')
-    
-    balance_sheet_data = ledger.get_balance_sheet(as_of_date)
-    
-    return render_template('balance_sheet.html', 
-                         data=balance_sheet_data,
-                         as_of_date=as_of_date.strftime('%Y-%m-%d'))
+    return redirect('/accounts/dashboard')
 
 
 @app.route('/reports/account-ledger/<account_id>')
 def account_ledger(account_id):
-    """Account ledger report"""
-    account = ledger.get_account(account_id)
-    if not account:
-        flash('Account not found!', 'error')
-        return redirect(url_for('accounts'))
-    
-    ledger_entries = ledger.get_account_ledger(account_id)
-    
-    return render_template('account_ledger.html', 
-                         account=account,
-                         ledger_entries=ledger_entries)
+    return redirect(f'/accounts/view/{account_id}')
 
 
 @app.route('/export')
 def export_data():
-    """Export data to JSON"""
-    filename = ledger.export_to_json()
-    flash(f'Data exported to {filename}', 'success')
-    return redirect(url_for('index'))
+    return redirect('/accounts/export/excel')
 
 
-# API endpoints for dynamic content
 @app.route('/api/accounts')
 def api_accounts():
-    """Get accounts as JSON"""
-    accounts_list = []
-    for account in ledger.accounts.values():
-        accounts_list.append({
-            'id': account.account_id,
-            'name': account.name,
-            'type': account.account_type.value,
-            'balance': account.balance
-        })
-    return jsonify(accounts_list)
+    return redirect('/accounts/')
+
+
+# ── Health Check Endpoint ────────────────────────────────────────
+@app.route('/health')
+def health_check():
+    """AWS ALB / monitoring health endpoint.
+
+    Returns HTTP 200 + JSON when everything is healthy,
+    HTTP 503 + JSON when the database is unreachable.
+    """
+    from db import health_check as db_health
+    db = db_health()
+    payload = {
+        'status': 'ok' if db['ok'] else 'degraded',
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'database': db,
+    }
+    http_status = 200 if db['ok'] else 503
+    if not db['ok']:
+        logger.error('Health check: DB unreachable — %s', db.get('error'))
+    return jsonify(payload), http_status
+
+
+@app.errorhandler(404)
+def not_found(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Not found', 'status': 404}), 404
+    return render_template('errors/404.html'), 404
+
+
+@app.errorhandler(500)
+def server_error(e):
+    logger.error("500 Internal Server Error: %s", e, exc_info=True)
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Internal server error', 'status': 500}), 500
+    return render_template('errors/500.html'), 500
 
 
 if __name__ == '__main__':

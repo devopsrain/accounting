@@ -190,6 +190,12 @@ def upload_document(bid_id):
 # ── Download Document ─────────────────────────────────────────────
 @bid_bp.route('/download/<bid_id>/<doc_id>')
 def download_document(bid_id, doc_id):
+    # S3 mode: redirect to a short-lived pre-signed URL (1 hr expiry)
+    presigned = bid_store.get_presigned_url(bid_id, doc_id)
+    if presigned:
+        return redirect(presigned)
+
+    # Disk fallback
     path = bid_store.get_document_path(bid_id, doc_id)
     if not path:
         flash('Document not found', 'error')
@@ -197,19 +203,20 @@ def download_document(bid_id, doc_id):
 
     meta = bid_store.get_document_meta(doc_id)
     original_name = meta.get('original_filename', 'document') if meta else 'document'
-
     return send_file(path, as_attachment=True, download_name=original_name)
 
 
 # ── View Document Online ──────────────────────────────────────────
 @bid_bp.route('/preview/<bid_id>/<doc_id>')
 def preview_document(bid_id, doc_id):
+    presigned = bid_store.get_presigned_url(bid_id, doc_id)
+    if presigned:
+        return redirect(presigned)
+
     path = bid_store.get_document_path(bid_id, doc_id)
     if not path:
         flash('Document not found', 'error')
         return redirect(url_for('bid.view_bid', bid_id=bid_id))
-
-    meta = bid_store.get_document_meta(doc_id)
     return send_file(path, as_attachment=False)
 
 

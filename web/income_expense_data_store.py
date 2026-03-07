@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, date
 from typing import Dict, List, Any, Optional
 
-from db import get_cursor, get_conn
+from db import get_cursor, get_conn, get_tenant_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class IncomeExpenseDataStore:
                    end_date: str = None) -> List[dict]:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 sql = "SELECT * FROM income_records WHERE company_id=%s"
                 params = [cid]
                 if start_date:
@@ -59,7 +59,7 @@ class IncomeExpenseDataStore:
                 if end_date:
                     sql += " AND date <= %s"
                     params.append(end_date)
-                sql += " ORDER BY date DESC"
+                sql += " ORDER BY date DESC LIMIT 1000"
                 cur.execute(sql, params)
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:
@@ -136,7 +136,7 @@ class IncomeExpenseDataStore:
                      end_date: str = None) -> List[dict]:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 sql = "SELECT * FROM expense_records WHERE company_id=%s"
                 params = [cid]
                 if start_date:
@@ -145,7 +145,7 @@ class IncomeExpenseDataStore:
                 if end_date:
                     sql += " AND date <= %s"
                     params.append(end_date)
-                sql += " ORDER BY date DESC"
+                sql += " ORDER BY date DESC LIMIT 1000"
                 cur.execute(sql, params)
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:

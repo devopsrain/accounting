@@ -8,7 +8,8 @@ All modules redirect here for authentication.
 from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash
 from datetime import datetime
 import logging
-from auth_data_store import auth_store, login_required, PRIVILEGE_LEVELS, PRIVILEGE_DESCRIPTIONS
+from auth_data_store import auth_store, login_required, PRIVILEGE_LEVELS, PRIVILEGE_DESCRIPTIONS, MIN_PASSWORD_LENGTH
+from extensions import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 # ── Login / Logout ────────────────────────────────────────────────
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
+@limiter.limit("20 per minute", methods=["POST"])
 def login():
     """User login page and handler."""
     if session.get('logged_in'):
@@ -109,8 +111,8 @@ def register():
         errors = []
         if not username or len(username) < 3:
             errors.append('Username must be at least 3 characters')
-        if not password or len(password) < 4:
-            errors.append('Password must be at least 4 characters')
+        if not password or len(password) < MIN_PASSWORD_LENGTH:
+            errors.append(f'Password must be at least {MIN_PASSWORD_LENGTH} characters')
         if password != confirm:
             errors.append('Passwords do not match')
         if not full_name:
@@ -209,8 +211,8 @@ def reset_password(user_id):
     """Reset a user's password."""
     data = request.get_json()
     new_password = data.get('password', '')
-    if len(new_password) < 4:
-        return jsonify({'success': False, 'error': 'Password too short'}), 400
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        return jsonify({'success': False, 'error': f'Password must be at least {MIN_PASSWORD_LENGTH} characters'}), 400
     ok = auth_store.change_password(user_id, new_password)
     if ok:
         return jsonify({'success': True, 'message': 'Password reset'})
@@ -253,8 +255,8 @@ def change_own_password():
 
     if new_pw != confirm:
         return jsonify({'success': False, 'error': 'Passwords do not match'}), 400
-    if len(new_pw) < 4:
-        return jsonify({'success': False, 'error': 'Password too short'}), 400
+    if len(new_pw) < MIN_PASSWORD_LENGTH:
+        return jsonify({'success': False, 'error': f'Password must be at least {MIN_PASSWORD_LENGTH} characters'}), 400
 
     # Verify current password
     username = session.get('username')
@@ -285,3 +287,41 @@ def api_auth_stats():
     """Get auth statistics as JSON."""
     stats = auth_store.get_auth_stats()
     return jsonify(stats)
+
+
+# ── API Token Management ──────────────────────────────────────────
+
+@auth_bp.route('/api/tokens', methods=['GET'])
+@login_required
+def list_my_tokens():
+    """List the current user's API tokens (no secret hashes returned)."""
+    tokens = auth_store.list_api_tokens(session.get('user_id'))
+    return jsonify({'tokens': tokens})
+
+
+@auth_bp.route('/api/tokens', methods=['POST'])
+@login_required
+def create_my_token():
+    """Create a new API token. The raw token is returned once — save it immediately."""
+    data = request.get_json() or request.form
+    label = (data.get('label') or '').strip()
+    if not label:
+        return jsonify({'success': False, 'error': 'Token label is required'}), 400
+    raw_token = auth_store.create_api_token(session.get('user_id'), label)
+    if raw_token:
+        return jsonify({
+            'success': True,
+            'token': raw_token,
+            'message': 'Save this token — it will not be shown again.',
+        })
+    return jsonify({'success': False, 'error': 'Failed to create token'}), 500
+
+
+@auth_bp.route('/api/tokens/<token_id>', methods=['DELETE'])
+@login_required
+def revoke_my_token(token_id):
+    """Revoke (deactivate) one of the current user's tokens."""
+    ok = auth_store.revoke_api_token(token_id, session.get('user_id'))
+    if ok:
+        return jsonify({'success': True, 'message': 'Token revoked'})
+    return jsonify({'success': False, 'error': 'Failed to revoke token'}), 500

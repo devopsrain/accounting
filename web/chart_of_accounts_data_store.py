@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime, date
 from typing import Dict, List, Any, Optional
 
-from db import get_cursor, get_conn
+from db import get_cursor, get_conn, get_tenant_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ChartOfAccountsDataStore:
     def read_all_accounts(self, company_id: str = None) -> pd.DataFrame:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 cur.execute(
                     "SELECT * FROM chart_of_accounts WHERE company_id=%s AND is_active=TRUE "
                     "ORDER BY account_code",
@@ -68,7 +68,7 @@ class ChartOfAccountsDataStore:
     def get_account_by_code(self, account_code: str, company_id: str = None) -> Optional[dict]:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 cur.execute(
                     "SELECT * FROM chart_of_accounts WHERE account_code=%s AND company_id=%s",
                     (account_code, cid)

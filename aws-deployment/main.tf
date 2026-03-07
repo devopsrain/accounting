@@ -307,7 +307,7 @@ resource "aws_iam_role_policy_attachment" "cloudwatch" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
-# Attach S3 access for backups
+# Attach S3 access for backups (scoped to project bucket only)
 resource "aws_iam_role_policy" "s3_backup" {
   name = "${var.project_name}-s3-backup"
   role = aws_iam_role.web.id

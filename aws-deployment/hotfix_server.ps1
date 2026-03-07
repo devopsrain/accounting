@@ -174,7 +174,92 @@ echo HEALTH_CHECK=\$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://
     }
 }
 
-# ── Step 7: Verify from outside ──────────────────────────────────
+# ── Step 7: Upload fixed Python modules ──────────────────────────
+Write-Step "Uploading fixed Python modules..."
+$webSrc    = Join-Path $PSScriptRoot "..\web"
+$remoteDst = "/opt/ethiopian-business/web"
+$filesToUpload = @(
+    "db.py",
+    "extensions.py",
+    "secrets_loader.py",
+    "tenant_data_store.py",
+    "vat_data_store.py",
+    "bid_data_store.py",
+    "bid_routes.py",
+    "cpo_data_store.py",
+    "backup_data_store.py",
+    "backup_routes.py",
+    "auth_data_store.py",
+    "auth_routes.py",
+    "app.py",
+    "employee_data_store.py",
+    "transaction_data_store.py",
+    "income_expense_data_store.py",
+    "multicompany_routes.py"
+)
+foreach ($f in $filesToUpload) {
+    $local = Join-Path $webSrc $f
+    if (Test-Path $local) {
+        Get-Content $local -Raw -Encoding UTF8 |
+            ssh @sshOpts $sshTarget "sudo tee $remoteDst/$f > /dev/null && sudo chown businessapp:businessapp $remoteDst/$f && echo UPLOADED_$f" 2>&1 |
+            ForEach-Object { if ($_ -match "UPLOADED_(.+)") { Write-OK "Uploaded $($Matches[1])" } }
+    } else {
+        Write-Fail "Local file not found: $local"
+    }
+}
+
+# Upload error templates
+$errSrc = Join-Path $webSrc "templates\errors"
+ssh @sshOpts $sshTarget "sudo mkdir -p $remoteDst/templates/errors && sudo chown businessapp:businessapp $remoteDst/templates/errors" 2>&1 | Out-Null
+foreach ($tpl in @("404.html", "500.html")) {
+    $local = Join-Path $errSrc $tpl
+    if (Test-Path $local) {
+        Get-Content $local -Raw -Encoding UTF8 |
+            ssh @sshOpts $sshTarget "sudo tee $remoteDst/templates/errors/$tpl > /dev/null && sudo chown businessapp:businessapp $remoteDst/templates/errors/$tpl && echo UPLOADED_$tpl" 2>&1 |
+            ForEach-Object { if ($_ -match "UPLOADED_(.+)") { Write-OK "Uploaded template $($Matches[1])" } }
+    }
+}
+
+# Upload auth templates (portal + register)
+$authSrc = Join-Path $webSrc "templates\auth"
+ssh @sshOpts $sshTarget "sudo mkdir -p $remoteDst/templates/auth && sudo chown businessapp:businessapp $remoteDst/templates/auth" 2>&1 | Out-Null
+foreach ($tpl in @("portal.html", "register.html")) {
+    $local = Join-Path $authSrc $tpl
+    if (Test-Path $local) {
+        Get-Content $local -Raw -Encoding UTF8 |
+            ssh @sshOpts $sshTarget "sudo tee $remoteDst/templates/auth/$tpl > /dev/null && sudo chown businessapp:businessapp $remoteDst/templates/auth/$tpl && echo UPLOADED_$tpl" 2>&1 |
+            ForEach-Object { if ($_ -match "UPLOADED_(.+)") { Write-OK "Uploaded template $($Matches[1])" } }
+    }
+}
+
+# Install new Python dependencies
+ssh @sshOpts $sshTarget @"
+sudo -u businessapp /opt/ethiopian-business/venv/bin/pip install \
+    'Flask-Limiter>=3.5.0' \
+    'Flask-Caching>=2.1.0' \
+    'APScheduler>=3.10.0' \
+    'python-json-logger>=2.0.0' \
+    'alembic>=1.13.0' \
+    'sqlalchemy>=2.0.0' \
+    'boto3>=1.34.0' \
+    --quiet && echo DEPS_INSTALLED
+"@ 2>&1 | ForEach-Object { if ($_ -match "DEPS_INSTALLED") { Write-OK "All Python dependencies installed" } }
+
+# Apply any pending Alembic DB migrations
+ssh @sshOpts $sshTarget @"
+cd /opt/ethiopian-business/web
+source /opt/ethiopian-business/venv/bin/activate 2>/dev/null || true
+alembic upgrade head && echo MIGRATIONS_OK || echo MIGRATIONS_SKIPPED
+"@ 2>&1 | ForEach-Object {
+    if ($_ -match "MIGRATIONS_OK")      { Write-OK "DB migrations applied (alembic upgrade head)" }
+    if ($_ -match "MIGRATIONS_SKIPPED") { Write-OK "No pending DB migrations" }
+}
+
+# Restart after file uploads
+ssh @sshOpts $sshTarget "sudo supervisorctl restart ethiopian-business; sleep 3; echo RESTART_DONE" 2>&1 |
+    ForEach-Object { if ($_ -match "RESTART_DONE") { Write-OK "App restarted after file upload" } }
+
+# ── Step 8: Verify from outside ──────────────────────────────────
 Write-Step "Verifying from external..."
 Start-Sleep -Seconds 3
 try {

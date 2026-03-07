@@ -6,7 +6,7 @@
 <div class="auth-fullpage">
     <div class="container">
         <div class="row justify-content-center">
-            <div class="col-md-6 col-lg-5">
+            <div class="col-md-7 col-lg-6">
                 <div class="text-center mb-4">
                     <i class="bi bi-person-plus display-3 text-white"></i>
                     <h3 class="text-white mt-2">Create Account</h3>
@@ -26,12 +26,19 @@
                         {% endif %}
                         {% endwith %}
 
+                        <div class="alert alert-info py-2 mb-3">
+                            <i class="bi bi-info-circle-fill me-1"></i>
+                            <strong>Access level:</strong> New accounts start as <strong>Viewer</strong>
+                            (read-only access). Contact your administrator to request higher privileges
+                            after registration.
+                        </div>
+
                         <form method="POST">
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label fw-semibold">Username</label>
                                     <input type="text" class="form-control" name="username" required minlength="3"
-                                           placeholder="Choose username">
+                                           placeholder="Choose username (min 3 chars)">
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label fw-semibold">Full Name</label>
@@ -52,8 +59,9 @@
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label fw-semibold">Password</label>
-                                    <input type="password" class="form-control" name="password" required minlength="4"
-                                           placeholder="Min 4 characters">
+                                    <input type="password" class="form-control" name="password" required minlength="12"
+                                           placeholder="Min 12 characters">
+                                    <div class="form-text">Must be at least 12 characters.</div>
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label fw-semibold">Confirm Password</label>
@@ -65,6 +73,19 @@
                                 <i class="bi bi-person-plus"></i> Create Account
                             </button>
                         </form>
+
+                        <hr>
+
+                        <div class="small text-muted">
+                            <strong>Privilege levels</strong> — an admin assigns these after registration:
+                            <ul class="mb-0 mt-1">
+                                <li><strong>Viewer</strong> — your starting level; view dashboards and reports only</li>
+                                <li><strong>Data Entry</strong> — add and edit records</li>
+                                <li><strong>Operator</strong> — import/export data, run advanced reports</li>
+                                <li><strong>Manager</strong> — manage employees, approve actions</li>
+                                <li><strong>Admin</strong> — full module access</li>
+                            </ul>
+                        </div>
 
                         <div class="text-center mt-3">
                             <a href="{{ url_for('auth.login') }}" class="text-decoration-none">

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # ── Security Constants ──────────────────────────────────────────
 MAX_FAILED_LOGIN_ATTEMPTS = 5      # lock account after N failures
 ACCOUNT_LOCKOUT_MINUTES = 30       # how long the account stays locked
-MIN_PASSWORD_LENGTH = 4            # minimum password characters
+MIN_PASSWORD_LENGTH = 12           # minimum password characters (NIST SP 800-63B)
 
 # ── Privilege Levels ──────────────────────────────────────────────
 # Higher number = more privileges
@@ -488,6 +488,112 @@ class AuthDataStore:
                 'privilege_operator': 0, 'privilege_manager': 0,
                 'privilege_admin': 0, 'privilege_super_admin': 0,
             }
+
+    # ── API Token Management ───────────────────────────────────────
+
+    def create_api_token(self, user_id: str, label: str) -> Optional[str]:
+        """
+        Generate a new API token for a user.
+
+        Token format: "<token_id>.<secret>" where token_id (16 hex) is the
+        lookup key and secret (64 hex) is hashed with SHA-256 for storage.
+        Returns the raw token string (show once); None on failure.
+        """
+        import secrets as _sec
+        import hashlib
+        token_id    = _sec.token_hex(8)    # 16-char public lookup ID
+        secret      = _sec.token_hex(32)   # 64-char secret
+        raw_token   = f"{token_id}.{secret}"
+        secret_hash = hashlib.sha256(secret.encode()).hexdigest()
+        now = datetime.utcnow().isoformat()
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    """INSERT INTO api_tokens
+                       (id, user_id, secret_hash, label, created_at, last_used_at, is_active)
+                       VALUES (%s,%s,%s,%s,%s,'',TRUE)""",
+                    (token_id, user_id, secret_hash, label, now)
+                )
+            logger.info("API token created: id=%s user_id=%s label=%s", token_id, user_id, label)
+            return raw_token
+        except Exception as e:
+            logger.error("create_api_token failed: %s", e)
+            return None
+
+    def validate_api_token(self, raw_token: str) -> Optional[dict]:
+        """
+        Validate a Bearer token.  O(1) DB lookup by token_id + SHA-256 match.
+        Returns the owning user dict (without password hash) or None.
+        """
+        import hashlib
+        if not raw_token or '.' not in raw_token:
+            return None
+        token_id, _, secret = raw_token.partition('.')
+        if not secret:
+            return None
+        secret_hash = hashlib.sha256(secret.encode()).hexdigest()
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    """SELECT t.id AS token_id, t.secret_hash, t.is_active AS token_active,
+                              u.user_id, u.username, u.full_name, u.privilege_level,
+                              u.is_active AS user_active
+                       FROM api_tokens t
+                       JOIN users u ON u.user_id = t.user_id
+                       WHERE t.id = %s AND t.is_active = TRUE AND u.is_active = TRUE""",
+                    (token_id,)
+                )
+                row = cur.fetchone()
+        except Exception as e:
+            logger.error("validate_api_token DB error: %s", e)
+            return None
+
+        if not row or row['secret_hash'] != secret_hash:
+            return None
+
+        # Update last_used_at (best-effort, non-blocking)
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "UPDATE api_tokens SET last_used_at=%s WHERE id=%s",
+                    (datetime.utcnow().isoformat(), token_id)
+                )
+        except Exception:
+            pass
+
+        return {
+            'user_id':        row['user_id'],
+            'username':       row['username'],
+            'full_name':      row['full_name'],
+            'privilege_level': row['privilege_level'],
+        }
+
+    def list_api_tokens(self, user_id: str) -> list:
+        """List all API tokens for a user (without secret hashes)."""
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT id, label, created_at, last_used_at, is_active "
+                    "FROM api_tokens WHERE user_id=%s ORDER BY created_at DESC",
+                    (user_id,)
+                )
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error("list_api_tokens failed: %s", e)
+            return []
+
+    def revoke_api_token(self, token_id: str, user_id: str) -> bool:
+        """Deactivate a token.  user_id prevents revoking another user's token."""
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "UPDATE api_tokens SET is_active=FALSE WHERE id=%s AND user_id=%s",
+                    (token_id, user_id)
+                )
+            return True
+        except Exception as e:
+            logger.error("revoke_api_token failed: %s", e)
+            return False
 
 
 # ── Decorator ─────────────────────────────────────────────────────

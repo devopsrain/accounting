@@ -14,6 +14,7 @@ from flask import (
     url_for, flash, session, jsonify,
 )
 
+from extensions import cache
 from tenant_data_store import tenant_store, SUBSCRIPTION_TIERS
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,11 @@ def create_tenant():
 
 @provider_admin_bp.route('/tenants/<company_id>')
 def view_tenant(company_id):
-    tenant = tenant_store.get_tenant(company_id)
+    tenant = cache.get(f'tenant:{company_id}')
+    if tenant is None:
+        tenant = tenant_store.get_tenant(company_id)
+        if tenant:
+            cache.set(f'tenant:{company_id}', tenant, timeout=60)
     if not tenant:
         flash('Tenant not found.', 'danger')
         return redirect(url_for('provider_admin.provider_dashboard'))

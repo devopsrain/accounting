@@ -119,12 +119,74 @@ def fetchall(sql: str, params=None) -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
-def health_check() -> bool:
-    """Return True if the database is reachable."""
+@contextmanager
+def get_tenant_cursor(company_id: str):
+    """
+    Like get_cursor(), but sets a transaction-local PostgreSQL variable for RLS.
+
+    Use this in data stores for tables that have row-level security enabled.
+    The variable 'app.current_company_id' is set for the duration of the
+    transaction only (TRUE = local scope), so it can never leak across requests.
+
+    Example:
+        with get_tenant_cursor(g.company_id) as cur:
+            cur.execute("SELECT * FROM bid_records")   # RLS filters by company_id
+    """
+    with get_conn() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                "SELECT set_config('app.current_company_id', %s, TRUE)",
+                (company_id or '',)
+            )
+            yield cur
+        finally:
+            cur.close()
+
+
+def health_check() -> dict:
+    """
+    Check the health of the PostgreSQL RDS connection.
+
+    Returns a dict with:
+      - ok (bool)          : True if the DB is reachable
+      - latency_ms (float) : round-trip time for SELECT 1
+      - version (str)      : PostgreSQL server version string
+      - pool_min (int)     : minimum pool size configured
+      - pool_max (int)     : maximum pool size configured
+      - pool_available (int): connections currently idle in pool
+      - error (str|None)   : exception message if not ok
+    """
+    import time
+    result: dict = {
+        'ok': False,
+        'latency_ms': None,
+        'version': None,
+        'pool_min': None,
+        'pool_max': None,
+        'pool_available': None,
+        'error': None,
+    }
     try:
+        pool = _get_pool()
+        result['pool_min'] = pool.minconn
+        result['pool_max'] = pool.maxconn
+        # ThreadedConnectionPool tracks idle connections in _pool set
+        result['pool_available'] = len(getattr(pool, '_pool', []))
+
+        t0 = time.perf_counter()
         with get_cursor() as cur:
             cur.execute("SELECT 1")
-        return True
+            cur.execute("SELECT version()")
+            row = cur.fetchone()
+        result['latency_ms'] = round((time.perf_counter() - t0) * 1000, 2)
+        if row:
+            # row is a RealDictRow: key is 'version'
+            version_str = row.get('version', '')
+            # shorten: "PostgreSQL 15.4 on x86_64..." → "PostgreSQL 15.4"
+            result['version'] = ' '.join(version_str.split()[:2])
+        result['ok'] = True
     except Exception as e:
-        logger.error("Database health check failed: %s", e)
-        return False
+        logger.error("DB health check failed: %s", e)
+        result['error'] = str(e)
+    return result

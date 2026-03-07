@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, date
 from typing import Dict, List, Any, Optional
 
-from db import get_cursor, get_conn
+from db import get_cursor, get_conn, get_tenant_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class TransactionDataStore:
                          end_date: str = None) -> pd.DataFrame:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 sql = "SELECT * FROM transactions WHERE company_id=%s"
                 params = [cid]
                 if start_date:
@@ -60,7 +60,7 @@ class TransactionDataStore:
                 if end_date:
                     sql += " AND date <= %s"
                     params.append(end_date)
-                sql += " ORDER BY date DESC"
+                sql += " ORDER BY date DESC LIMIT 1000"
                 cur.execute(sql, params)
                 rows = cur.fetchall()
                 return pd.DataFrame([dict(r) for r in rows]) if rows else pd.DataFrame()
@@ -155,7 +155,7 @@ class TransactionDataStore:
     def get_flagged_accounts(self, company_id: str = None) -> pd.DataFrame:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 cur.execute(
                     "SELECT * FROM flagged_accounts WHERE company_id=%s ORDER BY flagged_at DESC",
                     (cid,)
@@ -185,7 +185,7 @@ class TransactionDataStore:
     def get_import_history(self, company_id: str = None) -> List[dict]:
         cid = company_id or 'default'
         try:
-            with get_cursor() as cur:
+            with get_tenant_cursor(cid) as cur:
                 cur.execute(
                     "SELECT * FROM transaction_import_history WHERE company_id=%s "
                     "ORDER BY imported_at DESC LIMIT 100",

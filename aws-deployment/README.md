@@ -95,4 +95,3 @@ For deployment issues:
 ---
 
 **Ready to deploy?** Run `./deploy.sh` and follow the prompts! 🚀
-
