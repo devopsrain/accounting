@@ -146,6 +146,32 @@ class TenantDataStore:
             logger.error("get_all_tenants failed: %s", e)
             return []
 
+    def ensure_default_tenant(self) -> str:
+        """Return the first active tenant's company_id, creating a default one if none exist."""
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT company_id FROM tenants WHERE is_active=TRUE "
+                    "ORDER BY created_at LIMIT 1"
+                )
+                row = cur.fetchone()
+                if row:
+                    return row['company_id']
+        except Exception as e:
+            logger.error("ensure_default_tenant query failed: %s", e)
+
+        # No tenant exists — seed a default one
+        try:
+            self.create_tenant({
+                'company_id': 'default',
+                'company_name': 'Default Company',
+                'subscription_tier': 'enterprise',
+            }, created_by='system')
+            logger.info("Created default tenant")
+        except Exception as e:
+            logger.error("ensure_default_tenant create failed: %s", e)
+        return 'default'
+
     def update_tenant(self, company_id: str, updates: dict) -> bool:
         protected = {'company_id', 'created_at', 'created_by', 'license_key'}
         clean = {k: v for k, v in updates.items() if k not in protected}
