@@ -1,0 +1,58 @@
+﻿Ethiopian Business Management System - Full Log Dump
+Timestamp: 20260307_153803
+
+=== NginxErr ===
+2026/03/07 13:43:08 [notice] 8137#8137: using inherited sockets from "6;7;"
+
+=== AppLog ===
+2026-03-07 13:43:49 [INFO] web.app: Multi-company user portal integrated
+2026-03-07 13:43:49 [INFO] web.app: Authentication system integrated
+2026-03-07 13:43:49 [INFO] web.app: Provider admin dashboard integrated
+2026-03-07 13:43:49 [INFO] web.app: Sales marketing site integrated
+2026-03-07 13:43:49 [INFO] web.app: VAT portal integrated
+2026-03-07 13:43:49 [INFO] web.app: Ethiopian payroll system integrated
+2026-03-07 13:43:49 [INFO] web.app: Multi-company user portal integrated
+2026-03-07 13:43:49 [INFO] web.app: Journal entry system integrated
+2026-03-07 13:43:49 [INFO] web.app: VAT portal integrated
+2026-03-07 13:43:49 [INFO] web.app: Journal entry system integrated
+2026-03-07 13:43:49 [INFO] web.app: Chart of accounts system integrated
+2026-03-07 13:43:49 [INFO] web.app: Chart of accounts system integrated
+2026-03-07 13:43:49 [INFO] web.app: Authentication system integrated
+2026-03-07 13:43:49 [INFO] web.app: Provider admin dashboard integrated
+2026-03-07 13:43:49 [INFO] web.app: Income & Expense system integrated
+2026-03-07 13:43:49 [INFO] web.app: Sales marketing site integrated
+2026-03-07 13:43:49 [INFO] web.app: Income & Expense system integrated
+2026-03-07 13:43:49 [INFO] web.app: Transaction system integrated
+2026-03-07 13:43:49 [INFO] web.app: Ethiopian payroll system integrated
+2026-03-07 13:43:49 [INFO] web.app: Transaction system integrated
+2026-03-07 13:43:49 [INFO] web.app: CPO system integrated
+2026-03-07 13:43:49 [INFO] web.app: CPO system integrated
+2026-03-07 13:43:49 [INFO] web.app: Multi-company user portal integrated
+2026-03-07 13:43:49 [INFO] web.app: Inventory system integrated
+2026-03-07 13:43:49 [INFO] web.app: VAT portal integrated
+2026-03-07 13:43:49 [INFO] web.app: Journal entry system integrated
+2026-03-07 13:43:49 [INFO] bid_data_store: Bid deadline reminder thread started
+2026-03-07 13:43:49 [INFO] web.app: Chart of accounts system integrated
+2026-03-07 13:43:49 [INFO] web.app: Inventory system integrated
+2026-03-07 13:43:49 [INFO] web.app: Income & Expense system integrated
+2026-03-07 13:43:49 [INFO] web.app: Bid Tracker system integrated
+2026-03-07 13:43:49 [INFO] web.app: Transaction system integrated
+2026-03-07 13:43:49 [INFO] bid_data_store: Bid deadline reminder thread started
+2026-03-07 13:43:49 [INFO] web.app: SIEM system integrated
+2026-03-07 13:43:49 [INFO] web.app: CPO system integrated
+2026-03-07 13:43:49 [INFO] web.app: Bid Tracker system integrated
+2026-03-07 13:43:49 [INFO] web.app: SIEM system integrated
+2026-03-07 13:43:49 [INFO] backup_data_store: Backup scheduler started (daily at 01:00)
+2026-03-07 13:43:49 [INFO] web.app: Backup & Archive system integrated (scheduler at 01:00)
+2026-03-07 13:43:49 [INFO] backup_data_store: Backup scheduler started (daily at 01:00)
+2026-03-07 13:43:49 [INFO] web.app: Backup & Archive system integrated (scheduler at 01:00)
+2026-03-07 13:43:49 [INFO] web.app: Version control system integrated (v1.0.0)
+2026-03-07 13:43:49 [INFO] web.app: Inventory system integrated
+2026-03-07 13:43:49 [INFO] web.app: Version control system integrated (v1.0.0)
+2026-03-07 13:43:49 [INFO] bid_data_store: Bid deadline reminder thread started
+2026-03-07 13:43:49 [INFO] web.app: Bid Tracker system integrated
+2026-03-07 13:43:49 [INFO] web.app: SIEM system integrated
+2026-03-07 13:43:49 [INFO] backup_data_store: Backup scheduler started (daily at 01:00)
+2026-03-07 13:43:49 [INFO] web.app: Backup & Archive system integrated (scheduler at 01:00)
+2026-03-07 13:43:49 [INFO] web.app: Version control system integrated (v1.0.0)
+
