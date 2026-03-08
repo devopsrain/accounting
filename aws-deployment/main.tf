@@ -437,3 +437,16 @@ output "web_server_ip" {
 output "s3_bucket_name" {
   value = aws_s3_bucket.main.bucket
 }
+
+resource "aws_eip" "web_eip" {
+  instance = aws_instance.web.id  # Updated from 'web_server' to 'web'
+  domain   = "vpc"
+
+  tags = {
+    Name = "ethiopian-business-static-ip"
+  }
+}
+
+output "web_server_ip" {
+  value = aws_eip.web_eip.public_ip  # Changed from aws_instance.web.public_ip
+}
