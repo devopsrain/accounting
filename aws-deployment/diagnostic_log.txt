@@ -1,0 +1,4 @@
+2026-03-08T22:18:34 - STEP: Starting diagnostic for 13.244.63.30
+2026-03-08T22:18:34 - STEP: Testing network connectivity (ping)...
+2026-03-08T22:18:48 - Service check failed: The term 'only' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+2026-03-08T22:18:48 - STEP: Diagnostic complete. See log at C:\Users\info\Documents\GitHub\accounting\aws-deployment\diagnostic_log.txt

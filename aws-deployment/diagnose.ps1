@@ -628,7 +628,7 @@ function Show-FindingsReport {
 # ═══════════════════════════════════════════════════════════════════
 
 Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║  Ethiopian Business Management System — AWS Diagnostics     ║" -ForegroundColor Cyan
+Write-Host "║  Ethiopian Business Management System — AWS Diagnostics      ║" -ForegroundColor Cyan
 Write-Host "║  Action: $($Action.PadRight(52))║" -ForegroundColor Cyan
 Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
