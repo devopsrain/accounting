@@ -207,7 +207,7 @@
 
             {% if session.get('logged_in') %}
             <div class="nav-section">Portal</div>
-            <a class="nav-link" href="{{ url_for('auth.portal') }}">
+            <a class="nav-link" href="/auth/portal">
                 <i class="bi bi-grid-1x2"></i> Auth Portal
             </a>
             {% endif %}
