@@ -174,7 +174,7 @@
         <div class="sidebar-body">
         <nav class="nav flex-column mt-2">
             <div class="nav-section">Main</div>
-            <a class="nav-link {% if request.endpoint == 'auth.portal' %}active{% endif %}" href="{{ url_for('auth.portal') }}">
+            <a class="nav-link {% if request.endpoint == 'auth.portal' %}active{% endif %}" href="/auth/portal">
                 <i class="bi bi-grid-1x2"></i> Portal
             </a>
 
@@ -224,7 +224,7 @@
             <a class="nav-link" href="/siem/dashboard">
                 <i class="bi bi-shield-check"></i> SIEM
             </a>
-            <a class="nav-link {% if request.endpoint == 'auth.user_management' %}active{% endif %}" href="{{ url_for('auth.user_management') }}">
+            <a class="nav-link {% if request.endpoint == 'auth.user_management' %}active{% endif %}" href="/auth/users">
                 <i class="bi bi-people-fill"></i> User Management
             </a>
             {% endif %}
@@ -233,7 +233,7 @@
             <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
                 <i class="bi bi-key"></i> Change Password
             </a>
-            <a class="nav-link text-danger" href="{{ url_for('auth.logout') }}">
+            <a class="nav-link text-danger" href="/auth/logout">
                 <i class="bi bi-box-arrow-left"></i> Logout
             </a>
         </nav>

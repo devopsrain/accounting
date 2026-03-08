@@ -296,15 +296,29 @@ foreach ($tpl in @("404.html", "500.html")) {
     }
 }
 
-# Upload auth templates (portal + register)
+# Upload auth templates (all — base, login, portal, register, access_denied)
 $authSrc = Join-Path $webSrc "templates\auth"
 ssh @sshOpts $sshTarget "sudo mkdir -p $remoteDst/templates/auth && sudo chown businessapp:businessapp $remoteDst/templates/auth" 2>&1 | Out-Null
-foreach ($tpl in @("portal.html", "register.html")) {
+foreach ($tpl in @("base.html", "login.html", "portal.html", "register.html", "access_denied.html")) {
     $local = Join-Path $authSrc $tpl
     if (Test-Path $local) {
         Get-Content $local -Raw -Encoding UTF8 |
             ssh @sshOpts $sshTarget "sudo tee $remoteDst/templates/auth/$tpl > /dev/null && sudo chown businessapp:businessapp $remoteDst/templates/auth/$tpl && echo UPLOADED_$tpl" 2>&1 |
             ForEach-Object { if ($_ -match "UPLOADED_(.+)") { Write-OK "Uploaded template $($Matches[1])" } }
+    }
+}
+
+# Upload sales templates (index.html has auth links)
+$salesSrc = Join-Path $webSrc "templates\sales"
+if (Test-Path $salesSrc) {
+    ssh @sshOpts $sshTarget "sudo mkdir -p $remoteDst/templates/sales && sudo chown businessapp:businessapp $remoteDst/templates/sales" 2>&1 | Out-Null
+    foreach ($tpl in @("index.html")) {
+        $local = Join-Path $salesSrc $tpl
+        if (Test-Path $local) {
+            Get-Content $local -Raw -Encoding UTF8 |
+                ssh @sshOpts $sshTarget "sudo tee $remoteDst/templates/sales/$tpl > /dev/null && sudo chown businessapp:businessapp $remoteDst/templates/sales/$tpl && echo UPLOADED_sales_$tpl" 2>&1 |
+                ForEach-Object { if ($_ -match "UPLOADED_(.+)") { Write-OK "Uploaded template $($Matches[1])" } }
+        }
     }
 }
 
