@@ -174,6 +174,49 @@ echo HEALTH_CHECK=\$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://
     }
 }
 
+# ── Step 6b: Harden nginx — block scanner bots, suppress static 404s ──
+Write-Step "Hardening nginx (block bot IPs, suppress static 404 logs)..."
+ssh @sshOpts $sshTarget @"
+sudo tee /etc/nginx/sites-available/ethiopian-business << 'NGXEOF'
+server {
+    listen 80;
+    server_name _;
+
+    # Block known VPC-internal bot scanner IPs (Chinese gambling site crawlers)
+    deny 10.0.2.126;
+    deny 10.0.1.27;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    location /static {
+        alias /opt/ethiopian-business/web/static;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        log_not_found off;
+        access_log off;
+    }
+
+    location /health {
+        proxy_pass http://127.0.0.1:5000/health;
+        access_log off;
+    }
+}
+NGXEOF
+sudo nginx -t && sudo systemctl reload nginx && echo NGINX_HARDENED
+"@ 2>&1 | ForEach-Object {
+    if (\$_ -match "NGINX_HARDENED") { Write-OK "Nginx hardened: bots blocked, static 404s suppressed" }
+    if (\$_ -match "emerg|error")   { Write-Fail "Nginx config error: \$_" }
+}
+
 # ── Step 7: Upload fixed Python modules ──────────────────────────
 Write-Step "Uploading fixed Python modules..."
 $webSrc    = Join-Path $PSScriptRoot "..\web"
@@ -223,7 +266,27 @@ foreach ($f in $filesToUpload) {
 
 # Upload error templates
 $errSrc = Join-Path $webSrc "templates\errors"
+if (-not (Test-Path $errSrc)) {
+    $errSrc = Join-Path $PSScriptRoot "..\..\web\templates\errors"
+}
 ssh @sshOpts $sshTarget "sudo mkdir -p $remoteDst/templates/errors && sudo chown businessapp:businessapp $remoteDst/templates/errors" 2>&1 | Out-Null
+foreach ($tpl in @("404.html", "500.html")) {
+    $local = Join-Path $errSrc $tpl
+    if (Test-Path $local) {
+        Get-Content $local -Raw -Encoding UTF8 |
+            ssh @sshOpts $sshTarget "sudo tee $remoteDst/templates/errors/$tpl > /dev/null && sudo chown businessapp:businessapp $remoteDst/templates/errors/$tpl && echo UPLOADED_$tpl" 2>&1 |
+            ForEach-Object { if ($_ -match "UPLOADED_(.+)") { Write-OK "Uploaded template $($Matches[1])" } }
+    }
+}
+
+# Upload base template (contains nav links — must stay in sync)
+$baseSrc = Join-Path $webSrc "templates\base.html"
+if (-not (Test-Path $baseSrc)) { $baseSrc = Join-Path $PSScriptRoot "..\..\web\templates\base.html" }
+if (Test-Path $baseSrc) {
+    Get-Content $baseSrc -Raw -Encoding UTF8 |
+        ssh @sshOpts $sshTarget "sudo tee $remoteDst/templates/base.html > /dev/null && sudo chown businessapp:businessapp $remoteDst/templates/base.html && echo UPLOADED_base.html" 2>&1 |
+        ForEach-Object { if ($_ -match "UPLOADED_(.+)") { Write-OK "Uploaded template $($Matches[1])" } }
+}
 foreach ($tpl in @("404.html", "500.html")) {
     $local = Join-Path $errSrc $tpl
     if (Test-Path $local) {

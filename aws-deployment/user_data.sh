@@ -156,6 +156,10 @@ server {
     listen 80;
     server_name _;
 
+    # Block known VPC-internal bot scanner IPs (Chinese gambling site crawlers)
+    deny 10.0.2.126;
+    deny 10.0.1.27;
+
     location / {
         proxy_pass http://127.0.0.1:5000;
         proxy_set_header Host $host;
@@ -171,6 +175,8 @@ server {
         alias /opt/ethiopian-business/web/static;
         expires 1y;
         add_header Cache-Control "public, immutable";
+        log_not_found off;
+        access_log off;
     }
 
     location /health {
