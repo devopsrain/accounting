@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Ethiopian Business Management System — AWS Diagnostics & Health Check
+    Ethiopian Business Management System - AWS Diagnostics & Health Check
 .DESCRIPTION
     Comprehensive diagnostic tool that collects all AWS logs, checks health
     of every layer (EC2, nginx, gunicorn, Flask app, RDS, ALB, S3), and
@@ -30,12 +30,12 @@ param(
     [int]$WatchInterval = 30
 )
 
-# ── Colours ───────────────────────────────────────────────────────
+# --- Colours -------------------------------------------------------
 function Write-OK      { param($m) Write-Host "  [OK]    $m" -ForegroundColor Green }
 function Write-Warn    { param($m) Write-Host "  [WARN]  $m" -ForegroundColor Yellow }
 function Write-Fail    { param($m) Write-Host "  [FAIL]  $m" -ForegroundColor Red }
 function Write-Info    { param($m) Write-Host "  [INFO]  $m" -ForegroundColor Cyan }
-function Write-Section { param($m) Write-Host "`n═══ $m ═══" -ForegroundColor Magenta }
+function Write-Section { param($m) Write-Host "`n=== $m ===" -ForegroundColor Magenta }
 
 $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $logDir    = Join-Path $PSScriptRoot "diagnostic_logs"
@@ -46,10 +46,10 @@ $reportFile = Join-Path $logDir "diag_${timestamp}.txt"
 $findings = [System.Collections.Generic.List[string]]::new()
 function Add-Finding {
     param([string]$Severity, [string]$Component, [string]$Message, [string]$Suggestion)
-    $findings.Add("[$Severity] $Component — $Message | Fix: $Suggestion")
+    $findings.Add("[$Severity] $Component - $Message | Fix: $Suggestion")
 }
 
-# ── Auto-detect server IP from Terraform ──────────────────────────
+# --- Auto-detect server IP from Terraform --------------------------
 function Get-ServerIP {
     if ($ServerIP) { return $ServerIP }
     try {
@@ -62,14 +62,14 @@ function Get-ServerIP {
     exit 1
 }
 
-# ── SSH helper ────────────────────────────────────────────────────
+# --- SSH helper ----------------------------------------------------
 function Invoke-SSH {
     param([string]$Command, [int]$Timeout = 15)
     $result = ssh -o StrictHostKeyChecking=no -o ConnectTimeout=$Timeout -o BatchMode=yes -i $SSHKey "ubuntu@$script:ip" $Command 2>&1
     return ($result -join "`n")
 }
 
-# ── Terraform outputs ─────────────────────────────────────────────
+# --- Terraform outputs ---------------------------------------------
 function Get-TerraformOutputs {
     Write-Section "TERRAFORM OUTPUTS"
     try {
@@ -92,9 +92,9 @@ function Get-TerraformOutputs {
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
 # HEALTH CHECKS
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
 
 function Test-SSHConnectivity {
     Write-Section "SSH CONNECTIVITY"
@@ -143,7 +143,7 @@ function Test-SupervisorHealth {
     if ($supStatus -match "RUNNING") {
         Write-OK "gunicorn is RUNNING via supervisor"
     } elseif ($supStatus -match "FATAL") {
-        Write-Fail "gunicorn is FATAL — crashed on startup"
+        Write-Fail "gunicorn is FATAL - crashed on startup"
         Add-Finding "CRITICAL" "Gunicorn" "Process in FATAL state" "Check logs below; likely ImportError or missing dependency"
     } elseif ($supStatus -match "STOPPED") {
         Write-Warn "gunicorn is STOPPED"
@@ -157,7 +157,7 @@ function Test-SupervisorHealth {
         Write-OK "Port 5000 is listening"
     } else {
         Write-Fail "Nothing listening on port 5000"
-        Add-Finding "CRITICAL" "Gunicorn" "Port 5000 not open — app not running" "Fix app crash first, then: sudo supervisorctl restart ethiopian-business"
+        Add-Finding "CRITICAL" "Gunicorn" "Port 5000 not open - app not running" "Fix app crash first, then: sudo supervisorctl restart ethiopian-business"
     }
 }
 
@@ -177,23 +177,23 @@ function Test-FlaskAppHealth {
     # Test through nginx
     $nginxHealth = Invoke-SSH "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost/health 2>&1"
     if ($nginxHealth.Trim() -eq "200") {
-        Write-OK "nginx → Flask /health returns 200"
+        Write-OK "nginx -> Flask /health returns 200"
     } else {
-        Write-Warn "nginx → Flask returns $($nginxHealth.Trim())"
+        Write-Warn "nginx -> Flask returns $($nginxHealth.Trim())"
     }
 
     # Test through ALB (external)
     if ($ALB_DNS) {
         try {
             $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://$ALB_DNS/health" -TimeoutSec 10 -ErrorAction Stop
-            Write-OK "ALB → /health returns $($resp.StatusCode)"
+            Write-OK "ALB -> /health returns $($resp.StatusCode)"
         } catch {
             $code = $_.Exception.Response.StatusCode.value__
-            Write-Fail "ALB → /health returns $code"
+            Write-Fail "ALB -> /health returns $code"
             if ($code -eq 502) {
-                Add-Finding "CRITICAL" "ALB" "502 Bad Gateway — gunicorn not running" "Fix app crash, then ALB will recover automatically"
+                Add-Finding "CRITICAL" "ALB" "502 Bad Gateway - gunicorn not running" "Fix app crash, then ALB will recover automatically"
             } elseif ($code -eq 503) {
-                Add-Finding "WARNING" "ALB" "503 — target unhealthy, draining" "Wait for health check to pass after fixing app"
+                Add-Finding "WARNING" "ALB" "503 - target unhealthy, draining" "Wait for health check to pass after fixing app"
             }
         }
     }
@@ -227,21 +227,7 @@ function Test-DiskSpace {
     }
 }
 
-function Test-MemoryCPU {
-    Write-Section "MEMORY & CPU"
-    $mem = Invoke-SSH "free -m | head -2 2>&1"
-    Write-Info $mem
-    $load = Invoke-SSH "uptime 2>&1"
-    Write-Info "Load: $($load.Trim())"
-    $oom = Invoke-SSH "dmesg | grep -i 'out of memory' | tail -3 2>&1"
-    if ($oom -and $oom -notmatch "^$") {
-        Write-Fail "OOM killer events detected!"
-        Write-Info $oom
-        Add-Finding "CRITICAL" "Memory" "OOM events found" "Reduce gunicorn workers or increase instance size"
-    } else {
-        Write-OK "No OOM events"
-    }
-}
+
 
 function Test-S3Access {
     param([string]$BucketName)
@@ -269,7 +255,7 @@ function Test-TargetGroupHealth {
                 if ($state -eq "healthy") {
                     Write-OK "Target $($t.Target.Id):$($t.Target.Port) is HEALTHY"
                 } else {
-                    Write-Fail "Target $($t.Target.Id):$($t.Target.Port) is $state — $reason — $desc"
+                    Write-Fail "Target $($t.Target.Id):$($t.Target.Port) is $state - $reason - $desc"
                     Add-Finding "CRITICAL" "ALB" "Target unhealthy: $reason" "Fix the app so /health returns 200"
                 }
             }
@@ -303,9 +289,9 @@ function Test-SecurityGroups {
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
 # LOG COLLECTION
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
 
 function Get-AllLogs {
     Write-Section "COLLECTING ALL AWS LOGS"
@@ -339,7 +325,7 @@ function Get-AllLogs {
         @{ Name = "OPEN PORTS";              Cmd = "sudo ss -tlnp 2>&1" }
     )
 
-    $allOutput = "Ethiopian Business Management System — Full Log Dump`n"
+    $allOutput = "Ethiopian Business Management System - Full Log Dump`n"
     $allOutput += "Timestamp: $timestamp`n"
     $allOutput += "Server: $script:ip`n"
     $allOutput += ("=" * 80) + "`n"
@@ -372,9 +358,9 @@ function Get-AllLogs {
     return $logFile
 }
 
-# ═══════════════════════════════════════════════════════════════════
-# DEEP DIAGNOSIS — PATTERN MATCHING
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
+# DEEP DIAGNOSIS - PATTERN MATCHING
+# ===================================================================
 
 function Invoke-DeepDiagnosis {
     Write-Section "DEEP DIAGNOSIS"
@@ -458,16 +444,16 @@ except Exception as e:
     # 8. Check systemd/supervisor conflict
     $sysdActive = Invoke-SSH "systemctl is-active ethiopian-business 2>&1"
     if ($sysdActive.Trim() -eq "active") {
-        Write-Fail "systemd ethiopian-business is ACTIVE — conflicts with supervisor!"
+        Write-Fail "systemd ethiopian-business is ACTIVE - conflicts with supervisor!"
         Add-Finding "CRITICAL" "Startup" "Both systemd and supervisor managing gunicorn" "sudo systemctl stop ethiopian-business; sudo systemctl disable ethiopian-business"
     } else {
         Write-OK "systemd service correctly disabled (supervisor manages gunicorn)"
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════
-# AUTO-FIX — COMMON ISSUES
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
+# AUTO-FIX - COMMON ISSUES
+# ===================================================================
 
 function Invoke-AutoFix {
     Write-Section "AUTO-FIX (applying common fixes)"
@@ -548,16 +534,16 @@ PYEOF
     Start-Sleep -Seconds 3
     $health = Invoke-SSH "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:5000/health 2>&1"
     if ($health.Trim() -eq "200") {
-        Write-OK "Health check PASSED — app is serving on port 5000"
+        Write-OK "Health check PASSED - app is serving on port 5000"
     } else {
         Write-Fail "Health check still failing (HTTP $($health.Trim()))"
         Write-Info "Run '.\diagnose.ps1 -Action Logs' to see detailed error output"
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════
-# WATCH MODE — CONTINUOUS MONITORING
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
+# WATCH MODE - CONTINUOUS MONITORING
+# ===================================================================
 
 function Start-Watch {
     Write-Section "CONTINUOUS MONITORING (Ctrl+C to stop)"
@@ -581,14 +567,14 @@ function Start-Watch {
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
 # FINDINGS REPORT
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
 
 function Show-FindingsReport {
     Write-Section "FINDINGS SUMMARY"
     if ($findings.Count -eq 0) {
-        Write-OK "No issues found — everything looks healthy!"
+        Write-OK "No issues found - everything looks healthy!"
         return
     }
 
@@ -600,7 +586,7 @@ function Show-FindingsReport {
         foreach ($f in $criticals) {
             $parts = $f -split '\|'
             Write-Host "    $($parts[0].Trim())" -ForegroundColor Red
-            if ($parts.Count -gt 1) { Write-Host "      → $($parts[1].Trim())" -ForegroundColor Yellow }
+            if ($parts.Count -gt 1) { Write-Host "      -> $($parts[1].Trim())" -ForegroundColor Yellow }
         }
     }
     if ($warnings) {
@@ -608,12 +594,12 @@ function Show-FindingsReport {
         foreach ($f in $warnings) {
             $parts = $f -split '\|'
             Write-Host "    $($parts[0].Trim())" -ForegroundColor Yellow
-            if ($parts.Count -gt 1) { Write-Host "      → $($parts[1].Trim())" -ForegroundColor DarkYellow }
+            if ($parts.Count -gt 1) { Write-Host "      -> $($parts[1].Trim())" -ForegroundColor DarkYellow }
         }
     }
 
     # Save report
-    $reportContent = "Diagnostic Report — $timestamp`n" + ("=" * 60) + "`n"
+    $reportContent = "Diagnostic Report - $timestamp`n" + ("=" * 60) + "`n"
     $reportContent += ($findings -join "`n") + "`n"
     $reportContent | Out-File -FilePath $reportFile -Encoding utf8
     Write-Info "Report saved to $reportFile"
@@ -623,14 +609,14 @@ function Show-FindingsReport {
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
 # MAIN
-# ═══════════════════════════════════════════════════════════════════
+# ===================================================================
 
-Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║  Ethiopian Business Management System — AWS Diagnostics      ║" -ForegroundColor Cyan
-Write-Host "║  Action: $($Action.PadRight(52))║" -ForegroundColor Cyan
-Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "`n+==============================================================+" -ForegroundColor Cyan
+Write-Host "|  Ethiopian Business Management System - AWS Diagnostics      |" -ForegroundColor Cyan
+Write-Host "|  Action: $($Action.PadRight(52))|" -ForegroundColor Cyan
+Write-Host "+==============================================================+" -ForegroundColor Cyan
 
 $script:ip = Get-ServerIP
 Write-Info "Target server: $script:ip"
