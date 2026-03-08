@@ -590,7 +590,10 @@ def health_check():
 def not_found(e):
     if request.path.startswith('/api/'):
         return jsonify({'error': 'Not found', 'status': 404}), 404
-    return render_template('errors/404.html'), 404
+    try:
+        return render_template('errors/404.html'), 404
+    except Exception:
+        return '<h1>404 — Page Not Found</h1><p><a href="/">Back to Home</a></p>', 404
 
 
 @app.errorhandler(500)
@@ -598,7 +601,10 @@ def server_error(e):
     logger.error("500 Internal Server Error: %s", e, exc_info=True)
     if request.path.startswith('/api/'):
         return jsonify({'error': 'Internal server error', 'status': 500}), 500
-    return render_template('errors/500.html'), 500
+    try:
+        return render_template('errors/500.html'), 500
+    except Exception:
+        return '<h1>500 — Internal Server Error</h1><p>Something went wrong. <a href="/">Back to Home</a></p>', 500
 
 
 if __name__ == '__main__':
