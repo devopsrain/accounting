@@ -227,7 +227,43 @@ function Test-DiskSpace {
     }
 }
 
+function Test-MemoryCPU {
+    Write-Section "MEMORY & CPU"
 
+    $memCmd = 'free -m | awk ''/Mem/{printf "Used: %dMB / %dMB (%.0f%%)", $3, $2, $3/$2*100}'' 2>&1'
+    $mem = Invoke-SSH $memCmd
+    Write-Info "Memory: $($mem.Trim())"
+
+    $cpuCmd = 'top -bn1 | awk ''/^%Cpu/{printf "CPU idle: %.1f%%", $8}'' 2>&1'
+    $cpu = Invoke-SSH $cpuCmd
+    Write-Info "CPU: $($cpu.Trim())"
+
+    if ($mem -match "\((\d+)%\)") {
+        $pct = [int]$Matches[1]
+        if ($pct -gt 90) {
+            Write-Fail "Memory usage at ${pct}% - OOM risk!"
+            Add-Finding "CRITICAL" "Memory" "Memory usage ${pct}%" "Check for memory leaks; consider upgrading instance type or adding swap"
+        } elseif ($pct -gt 75) {
+            Write-Warn "Memory usage at ${pct}%"
+            Add-Finding "WARNING" "Memory" "Memory usage ${pct}%" "Monitor closely; gunicorn workers may be consuming too much RAM"
+        } else {
+            Write-OK "Memory usage normal (${pct}%)"
+        }
+    }
+
+    if ($cpu -match "CPU idle: ([\d.]+)%") {
+        $idle = [double]$Matches[1]
+        $used = 100 - $idle
+        if ($used -gt 90) {
+            Write-Fail "CPU usage at ${used}%"
+            Add-Finding "WARNING" "CPU" "CPU usage ${used}%" "Check for runaway processes: ps aux --sort=-%cpu | head"
+        } elseif ($used -gt 70) {
+            Write-Warn "CPU usage at ${used}%"
+        } else {
+            Write-OK "CPU usage normal (~${used}% used)"
+        }
+    }
+}
 
 function Test-S3Access {
     param([string]$BucketName)
@@ -297,63 +333,69 @@ function Get-AllLogs {
     Write-Section "COLLECTING ALL AWS LOGS"
     $logFile = Join-Path $logDir "logs_${timestamp}.txt"
     Write-Info "Saving to $logFile"
+    Write-Host "  Collecting all logs in one SSH call..." -NoNewline
 
-    $logCommands = @(
-        @{ Name = "SUPERVISOR LOG";          Cmd = "sudo tail -80 /var/log/supervisor/supervisord.log 2>&1" },
-        @{ Name = "APP STDOUT (supervisor)"; Cmd = "sudo tail -150 /var/log/ethiopian-business.log 2>&1" },
-        @{ Name = "APP ERROR LOG";           Cmd = "sudo tail -100 /var/log/ethiopian-business-error.log 2>&1" },
-        @{ Name = "APP ACCESS LOG";          Cmd = "sudo tail -50 /var/log/ethiopian-business-access.log 2>&1" },
-        @{ Name = "NGINX ERROR LOG";         Cmd = "sudo tail -80 /var/log/nginx/error.log 2>&1" },
-        @{ Name = "NGINX ACCESS LOG";        Cmd = "sudo tail -30 /var/log/nginx/access.log 2>&1" },
-        @{ Name = "CLOUD-INIT OUTPUT";       Cmd = "sudo tail -150 /var/log/cloud-init-output.log 2>&1" },
-        @{ Name = "USER_DATA LOG";           Cmd = "sudo tail -150 /var/log/user_data.log 2>&1" },
-        @{ Name = "SYSLOG (app errors)";     Cmd = "sudo grep -i 'ethiopian\|gunicorn\|supervisor' /var/log/syslog | tail -40 2>&1" },
-        @{ Name = "DMESG (kernel/OOM)";      Cmd = "sudo dmesg | tail -30 2>&1" },
-        @{ Name = "JOURNALCTL nginx";        Cmd = "sudo journalctl -u nginx --no-pager -n 30 2>&1" },
-        @{ Name = "PIP PACKAGES";            Cmd = "sudo -u businessapp /opt/ethiopian-business/venv/bin/pip list 2>&1" },
-        @{ Name = "PYTHON PATH TEST";        Cmd = "sudo -u businessapp /opt/ethiopian-business/venv/bin/python -c 'import sys; print(chr(10).join(sys.path))' 2>&1" },
-        @{ Name = "ENV FILE (redacted)";     Cmd = "sudo cat /opt/ethiopian-business/.env 2>&1 | sed 's/=.*/=***REDACTED***/' " },
-        @{ Name = "SUPERVISOR CONF";         Cmd = "sudo cat /etc/supervisor/conf.d/ethiopian-business.conf 2>&1" },
-        @{ Name = "NGINX SITE CONF";         Cmd = "sudo cat /etc/nginx/sites-available/ethiopian-business 2>&1" },
-        @{ Name = "RUN_PRODUCTION.PY";       Cmd = "cat /opt/ethiopian-business/run_production.py 2>&1" },
-        @{ Name = "DEPLOY COMPLETE MARKER";  Cmd = "ls -la /opt/ethiopian-business/.deploy_complete 2>&1" },
-        @{ Name = "APP DIRECTORY LISTING";   Cmd = "ls -la /opt/ethiopian-business/ 2>&1" },
-        @{ Name = "WEB DIRECTORY LISTING";   Cmd = "ls -la /opt/ethiopian-business/web/ 2>&1" },
-        @{ Name = "DISK USAGE";              Cmd = "df -h 2>&1" },
-        @{ Name = "MEMORY";                  Cmd = "free -m 2>&1" },
-        @{ Name = "PROCESSES (gunicorn)";    Cmd = "ps aux | grep gunicorn 2>&1" },
-        @{ Name = "OPEN PORTS";              Cmd = "sudo ss -tlnp 2>&1" }
-    )
+    # Single SSH call - all commands batched with delimiters
+    $batchCmd = @'
+SEP="================================================================"
+section() { echo; echo "=== $1 ==="; echo "$SEP"; }
 
-    $allOutput = "Ethiopian Business Management System - Full Log Dump`n"
+section "SUPERVISOR LOG";          sudo tail -80  /var/log/supervisor/supervisord.log 2>&1
+section "APP STDOUT (supervisor)"; sudo tail -150 /var/log/ethiopian-business.log 2>&1
+section "APP ERROR LOG";           sudo tail -100 /var/log/ethiopian-business-error.log 2>&1
+section "APP ACCESS LOG";          sudo tail -50  /var/log/ethiopian-business-access.log 2>&1
+section "NGINX ERROR LOG";         sudo tail -80  /var/log/nginx/error.log 2>&1
+section "NGINX ACCESS LOG";        sudo tail -30  /var/log/nginx/access.log 2>&1
+section "CLOUD-INIT OUTPUT";       sudo tail -150 /var/log/cloud-init-output.log 2>&1
+section "USER_DATA LOG";           sudo tail -150 /var/log/user_data.log 2>&1
+section "SYSLOG (app errors)";     sudo grep -i 'ethiopian\|gunicorn\|supervisor' /var/log/syslog 2>/dev/null | tail -40
+section "DMESG (kernel/OOM)";      sudo dmesg | tail -30 2>&1
+section "JOURNALCTL nginx";        sudo journalctl -u nginx --no-pager -n 30 2>&1
+section "PIP PACKAGES";            sudo -u businessapp /opt/ethiopian-business/venv/bin/pip list 2>&1
+section "PYTHON PATH TEST";        sudo -u businessapp /opt/ethiopian-business/venv/bin/python -c 'import sys; print("\n".join(sys.path))' 2>&1
+section "ENV FILE (redacted)";     sudo cat /opt/ethiopian-business/.env 2>/dev/null | sed 's/=.*/=***REDACTED***/'
+section "SUPERVISOR CONF";         sudo cat /etc/supervisor/conf.d/ethiopian-business.conf 2>&1
+section "NGINX SITE CONF";         sudo cat /etc/nginx/sites-available/ethiopian-business 2>&1
+section "RUN_PRODUCTION.PY";       cat /opt/ethiopian-business/run_production.py 2>&1
+section "DEPLOY COMPLETE MARKER";  ls -la /opt/ethiopian-business/.deploy_complete 2>&1
+section "APP DIRECTORY LISTING";   ls -la /opt/ethiopian-business/ 2>&1
+section "WEB DIRECTORY LISTING";   ls -la /opt/ethiopian-business/web/ 2>&1
+section "DISK USAGE";              df -h 2>&1
+section "MEMORY";                  free -m 2>&1
+section "PROCESSES (gunicorn)";    ps aux | grep gunicorn 2>&1
+section "OPEN PORTS";              sudo ss -tlnp 2>&1
+'@
+
+    $out = Invoke-SSH $batchCmd -Timeout 60
+    Write-Host " done" -ForegroundColor DarkGray
+
+    $allOutput  = "Ethiopian Business Management System - Full Log Dump`n"
     $allOutput += "Timestamp: $timestamp`n"
     $allOutput += "Server: $script:ip`n"
     $allOutput += ("=" * 80) + "`n"
-
-    foreach ($log in $logCommands) {
-        Write-Host "  Collecting $($log.Name)..." -NoNewline
-        $out = Invoke-SSH $log.Cmd
-        $allOutput += "`n`n=== $($log.Name) ===`n$out`n"
-
-        # Scan for common errors
-        if ($out -match "ModuleNotFoundError|ImportError") {
-            Write-Fail " IMPORT ERROR FOUND"
-            $match = ($out -split "`n" | Select-String "ModuleNotFoundError|ImportError" | Select-Object -First 3) -join "`n"
-            Add-Finding "CRITICAL" $log.Name "Python import error: $match" "Check sys.path and pip install; ensure web/ is on sys.path"
-        } elseif ($out -match "Permission denied") {
-            Write-Warn " PERMISSION ERROR"
-            Add-Finding "WARNING" $log.Name "Permission denied errors found" "Check file ownership: chown -R businessapp:businessapp /opt/ethiopian-business"
-        } elseif ($out -match "Address already in use") {
-            Write-Warn " PORT CONFLICT"
-            Add-Finding "CRITICAL" $log.Name "Port already in use" "Kill conflicting process: sudo fuser -k 5000/tcp"
-        } elseif ($out -match "No such file or directory" -and $log.Name -notmatch "ERROR LOG|ACCESS LOG") {
-            Write-Warn " MISSING FILE"
-        } else {
-            Write-Host " done" -ForegroundColor DarkGray
-        }
-    }
+    $allOutput += $out
 
     $allOutput | Out-File -FilePath $logFile -Encoding utf8
+
+    # Scan for common errors in the combined output
+    if ($out -match "ModuleNotFoundError|ImportError") {
+        Write-Fail "IMPORT ERROR found in logs"
+        $match = ($out -split "`n" | Select-String "ModuleNotFoundError|ImportError" | Select-Object -First 3) -join "`n"
+        Add-Finding "CRITICAL" "Logs" "Python import error: $match" "Check sys.path and pip install; ensure web/ is on sys.path"
+    }
+    if ($out -match "Permission denied") {
+        Write-Warn "PERMISSION errors found in logs"
+        Add-Finding "WARNING" "Logs" "Permission denied errors found" "chown -R businessapp:businessapp /opt/ethiopian-business"
+    }
+    if ($out -match "Address already in use") {
+        Write-Warn "PORT CONFLICT found in logs"
+        Add-Finding "CRITICAL" "Logs" "Port already in use" "sudo fuser -k 5000/tcp"
+    }
+    if ($out -match "Traceback") {
+        Write-Fail "PYTHON TRACEBACK found in logs"
+        Add-Finding "CRITICAL" "Logs" "Python traceback detected" "Review logs at $logFile"
+    }
+
     Write-OK "All logs saved to $logFile"
     return $logFile
 }
@@ -513,7 +555,7 @@ PYEOF
     Invoke-SSH "sudo supervisorctl reread; sudo supervisorctl update" | Out-Null
     Invoke-SSH "sudo supervisorctl restart ethiopian-business" | Out-Null
     Start-Sleep -Seconds 5
-    
+
     # Verify
     $status = Invoke-SSH "sudo supervisorctl status ethiopian-business 2>&1"
     Write-Info "Supervisor status: $($status.Trim())"
@@ -553,8 +595,10 @@ function Start-Watch {
             $ts = Get-Date -Format 'HH:mm:ss'
             $sup = (Invoke-SSH "sudo supervisorctl status ethiopian-business 2>&1").Trim()
             $localHC = (Invoke-SSH "curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:5000/health 2>&1").Trim()
-            $mem = (Invoke-SSH "free -m | awk '/Mem/{printf \"%.0f%%\", \`$3/\`$2*100}' 2>&1").Trim()
-            $cpu = (Invoke-SSH "top -bn1 | awk '/Cpu/{printf \"%.0f%%\", 100-\`$8}' 2>&1").Trim()
+            $memWatchCmd = 'free -m | awk ''/Mem/{printf "%.0f%%", $3/$2*100}'' 2>&1'
+            $mem = (Invoke-SSH $memWatchCmd).Trim()
+            $cpuWatchCmd = 'top -bn1 | awk ''/^%Cpu/{printf "%.0f%%", 100-$8}'' 2>&1'
+            $cpu = (Invoke-SSH $cpuWatchCmd).Trim()
             $disk = (Invoke-SSH "df -h / | awk 'NR==2{print \`$5}' 2>&1").Trim()
 
             $color = if ($localHC -eq '200') { 'Green' } else { 'Red' }
